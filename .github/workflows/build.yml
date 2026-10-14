@@ -1,0 +1,57 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -r requirements.txt pytest pyinstaller
+
+      - name: Test
+        run: python -m pytest -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          else { $v = (Select-String -Path dictate/__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value + "-dev.$env:GITHUB_RUN_NUMBER" }
+          "value=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Build installer
+        shell: pwsh
+        run: ./packaging/build.ps1 -Version "${{ steps.version.outputs.value }}"
+        env:
+          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dictate-setup-${{ steps.version.outputs.value }}
+          path: dist/dictate-setup-*.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/dictate-setup-*.exe
+          generate_release_notes: true

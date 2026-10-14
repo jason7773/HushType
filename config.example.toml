@@ -1,0 +1,46 @@
+# dictate 設定檔。沒寫的欄位會用預設值。
+
+[hotkey]
+key = "right ctrl"      # 例如 "right ctrl"、"f9"、"right alt"
+mode = "hold"           # hold：按住說話；toggle：按一下開始、再按一下結束
+
+[stt]
+provider = "groq"
+model = "whisper-large-v3-turbo"   # 想要更準可改 "whisper-large-v3"
+language = "zh"
+# api_key = "gsk_..."              # 不建議寫在這裡，請改用環境變數 GROQ_API_KEY
+
+[cleanup]
+enabled = true                     # false：只做辨識，不經過 LLM 整理
+provider = "groq"
+model = "openai/gpt-oss-120b"     # 可用型號見 https://console.groq.com/docs/models
+extra = { reasoning_effort = "low" }  # 推理型模型少想一點，回應較快
+# system_prompt = """自訂整理規則"""
+
+# 換成其他 OpenAI 相容服務的範例（例如本機 llama.cpp server，資料完全不出電腦）：
+# [cleanup]
+# provider = "openai_compatible"
+# base_url = "http://127.0.0.1:8080/v1"
+# api_key = "local"
+# model = "qwen"
+# extra = {}
+
+[output]
+method = "paste"                   # paste：剪貼簿貼上；type：模擬逐字打字
+restore_clipboard = true
+convert_to_traditional = true
+
+[vocabulary]
+terms = ["Groq", "Python"]         # 常用專有名詞
+replacements = { "拍森" = "Python" }
+
+[privacy]
+log_text = false                   # true 會在視窗中顯示辨識出的文字
+
+[feedback]
+beep = true
+
+[stats]
+enabled = true                     # 記錄使用時間與字數（不含任何內容），供儀表板使用
+# path = "D:/dictate/usage.db"     # 預設存在 %APPDATA%\\dictate\\usage.db
+typing_cpm = 40                    # 你的打字速度（字/分鐘），用來估算省下多少時間

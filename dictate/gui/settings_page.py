@@ -1,0 +1,387 @@
+"""「設定」頁：所有設定都在這裡改，按「儲存」後立即生效。"""
+
+from __future__ import annotations
+
+import copy
+import threading
+
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .. import autostart, keystore
+from ..config import DEFAULT_CLEANUP_PROMPT
+from .widgets import Card, label
+
+HOTKEYS = ["right ctrl", "right alt", "right shift", "caps lock", "f8", "f9", "f10", "f12", "scroll lock", "pause"]
+STT_MODELS = ["whisper-large-v3-turbo", "whisper-large-v3"]
+CLEANUP_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+LANGUAGES = [("中文", "zh"), ("英文", "en"), ("自動偵測", "")]
+EFFORTS = [("低（較快）", "low"), ("中", "medium"), ("高", "high"), ("不設定", None)]
+PROVIDERS = [("Groq", "groq"), ("其他 OpenAI 相容服務", "openai_compatible")]
+
+
+def _combo(items, current) -> QComboBox:
+    box = QComboBox()
+    for text, data in items:
+        box.addItem(text, data)
+    i = box.findData(current)
+    box.setCurrentIndex(i if i >= 0 else 0)
+    box.setMinimumWidth(280)
+    return box
+
+
+def _editable_combo(values: list[str], current: str) -> QComboBox:
+    box = QComboBox()
+    box.setEditable(True)
+    box.addItems(values)
+    box.setCurrentText(current)
+    box.setMinimumWidth(280)
+    return box
+
+
+def _form() -> QFormLayout:
+    form = QFormLayout()
+    form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    form.setHorizontalSpacing(18)
+    form.setVerticalSpacing(10)
+    form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+    return form
+
+
+def key_env(section: str, provider: str) -> str:
+    """金鑰在認證管理員裡的名稱。Groq 兩個功能共用同一把。"""
+    return "GROQ_API_KEY" if provider == "groq" else f"DICTATE_{section.upper()}_API_KEY"
+
+
+class ServiceForm:
+    """一組「服務／網址／金鑰」欄位，語音辨識和文字整理各一組。"""
+
+    def __init__(self, form: QFormLayout, section_name: str, section: dict):
+        self.section_name = section_name
+        self.provider = _combo(PROVIDERS, section["provider"])
+        self.base_url = QLineEdit(section.get("base_url", ""))
+        self.base_url.setPlaceholderText("例如 http://127.0.0.1:8080/v1")
+        self.key = QLineEdit()
+        self.key.setEchoMode(QLineEdit.Password)
+        self.key.setPlaceholderText("貼上 API 金鑰")
+        self.show_key = QPushButton("顯示")
+        self.show_key.setCheckable(True)
+        self.show_key.toggled.connect(self._toggle_key)
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.key, 1)
+        key_row.addWidget(self.show_key)
+        self._key_widget = QWidget()
+        self._key_widget.setLayout(key_row)
+        key_row.setContentsMargins(0, 0, 0, 0)
+        form.addRow("服務", self.provider)
+        form.addRow("網址", self.base_url)
+        form.addRow("API 金鑰", self._key_widget)
+        self._form = form
+        self.provider.currentIndexChanged.connect(self._sync)
+        self.legacy_key = section.get("api_key", "")
+        self.load_key()
+        self._sync()
+
+    def _toggle_key(self, on: bool) -> None:
+        self.key.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password)
+        self.show_key.setText("隱藏" if on else "顯示")
+
+    def _sync(self) -> None:
+        custom = self.provider.currentData() != "groq"
+        self._form.setRowVisible(self.base_url, custom)
+        self.load_key()
+
+    @property
+    def env(self) -> str:
+        return key_env(self.section_name, self.provider.currentData())
+
+    def load_key(self) -> None:
+        self.key.setText(keystore.get_secret(self.env) or self.legacy_key)
+        self.key.setModified(False)
+
+    def write(self, section: dict) -> None:
+        for k in ("provider", "base_url", "api_key", "api_key_env"):
+            section.pop(k, None)
+        section["provider"] = self.provider.currentData()
+        if section["provider"] != "groq":
+            section["base_url"] = self.base_url.text().strip()
+            section["api_key_env"] = self.env
+
+
+class _HotkeySignal(QObject):
+    captured = Signal(str)
+
+
+class SettingsPage(QWidget):
+    def __init__(self, window):
+        super().__init__()
+        self.window = window
+        self.setObjectName("page")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        outer.addWidget(self.scroll, 1)
+
+        bar = QWidget()
+        bar.setObjectName("saveBar")
+        bar_lay = QHBoxLayout(bar)
+        bar_lay.setContentsMargins(28, 12, 28, 12)
+        self.note = label("", "muted")
+        bar_lay.addWidget(self.note, 1)
+        self.revert_btn = QPushButton("取消變更")
+        self.revert_btn.clicked.connect(self.load)
+        self.save_btn = QPushButton("儲存")
+        self.save_btn.setObjectName("primary")
+        self.save_btn.clicked.connect(self.save)
+        bar_lay.addWidget(self.revert_btn)
+        bar_lay.addWidget(self.save_btn)
+        outer.addWidget(bar)
+
+        self._hotkey = _HotkeySignal()
+        self._hotkey.captured.connect(self._hotkey_captured)
+        self.load()
+
+    # ---- 建立表單 ----
+
+    def load(self) -> None:
+        cfg = self.window.engine.config
+        root = QWidget()
+        root.setObjectName("page")
+        lay = QVBoxLayout(root)
+        lay.setContentsMargins(28, 24, 28, 28)
+        lay.setSpacing(16)
+        lay.addWidget(label("設定", "h1"))
+
+        # 一般
+        card, form = self._card(lay, "一般")
+        self.autostart = QCheckBox("開機時自動啟動（只顯示系統匣圖示）")
+        self.autostart.setChecked(autostart.is_enabled())
+        self.autostart.setEnabled(autostart.supported())
+        form.addRow(self.autostart)
+        self.beep = QCheckBox("開始與結束錄音時發出提示音")
+        self.beep.setChecked(cfg["feedback"]["beep"])
+        form.addRow(self.beep)
+
+        # 快捷鍵與麥克風
+        card, form = self._card(lay, "快捷鍵與麥克風")
+        self.hotkey = _editable_combo(HOTKEYS, cfg["hotkey"]["key"])
+        self.capture_btn = QPushButton("按一下要用的鍵")
+        self.capture_btn.clicked.connect(self._capture_hotkey)
+        row = QHBoxLayout()
+        row.addWidget(self.hotkey, 1)
+        row.addWidget(self.capture_btn)
+        form.addRow("快捷鍵", row)
+        self.mode = _combo([("按住說話，放開送出", "hold"), ("按一下開始，再按一下結束", "toggle")], cfg["hotkey"]["mode"])
+        form.addRow("操作方式", self.mode)
+        self.mic = QComboBox()
+        self.mic.setMinimumWidth(280)
+        self.mic.addItem("系統預設", "")
+        try:
+            from ..audio import input_devices
+
+            for name in input_devices():
+                self.mic.addItem(name, name)
+        except Exception:
+            pass
+        i = self.mic.findData(cfg["audio"]["device"])
+        if i < 0 and cfg["audio"]["device"]:
+            self.mic.addItem(f"{cfg['audio']['device']}（目前找不到）", cfg["audio"]["device"])
+            i = self.mic.count() - 1
+        self.mic.setCurrentIndex(max(i, 0))
+        form.addRow("麥克風", self.mic)
+
+        # 語音辨識
+        card, form = self._card(lay, "語音辨識")
+        self.stt_service = ServiceForm(form, "stt", cfg["stt"])
+        self.stt_model = _editable_combo(STT_MODELS, cfg["stt"]["model"])
+        form.addRow("模型", self.stt_model)
+        self.language = _combo(LANGUAGES, cfg["stt"].get("language") or "")
+        form.addRow("語言", self.language)
+
+        # 文字整理
+        card, form = self._card(lay, "文字整理")
+        self.cleanup_on = QCheckBox("用 AI 去除贅字、加標點、自動分段與條列")
+        self.cleanup_on.setChecked(cfg["cleanup"]["enabled"])
+        form.addRow(self.cleanup_on)
+        self.cleanup_service = ServiceForm(form, "cleanup", cfg["cleanup"])
+        self.cleanup_model = _editable_combo(CLEANUP_MODELS, cfg["cleanup"]["model"])
+        form.addRow("模型", self.cleanup_model)
+        self.effort = _combo(EFFORTS, cfg["cleanup"].get("extra", {}).get("reasoning_effort"))
+        form.addRow("推理強度", self.effort)
+        self.prompt = QPlainTextEdit(cfg["cleanup"]["system_prompt"])
+        self.prompt.setMinimumHeight(180)
+        form.addRow("整理規則", self.prompt)
+        reset = QPushButton("還原預設規則")
+        reset.clicked.connect(lambda: self.prompt.setPlainText(DEFAULT_CLEANUP_PROMPT))
+        form.addRow("", reset)
+        card.body.addWidget(label("推理強度只對 gpt-oss 等推理型模型有效；其他模型請選「不設定」。", "muted", wrap=True))
+
+        # 輸出
+        card, form = self._card(lay, "輸出")
+        self.method = _combo([("貼上（快，建議）", "paste"), ("模擬逐字打字", "type")], cfg["output"]["method"])
+        form.addRow("輸入方式", self.method)
+        self.restore_clip = QCheckBox("貼上後還原原本的剪貼簿內容")
+        self.restore_clip.setChecked(cfg["output"]["restore_clipboard"])
+        form.addRow(self.restore_clip)
+        self.traditional = QCheckBox("轉成繁體中文（台灣用語）")
+        self.traditional.setChecked(cfg["output"]["convert_to_traditional"])
+        form.addRow(self.traditional)
+
+        # 詞彙
+        card, form = self._card(lay, "詞彙")
+        self.terms = QPlainTextEdit("\n".join(cfg["vocabulary"]["terms"]))
+        self.terms.setPlaceholderText("一行一個，例如：\nGroq\n抹茶")
+        self.terms.setFixedHeight(110)
+        form.addRow("專有名詞", self.terms)
+        self.replacements = QPlainTextEdit(
+            "\n".join(f"{k} → {v}" for k, v in cfg["vocabulary"]["replacements"].items())
+        )
+        self.replacements.setPlaceholderText("一行一組，例如：\n拍森 → Python")
+        self.replacements.setFixedHeight(110)
+        form.addRow("固定替換", self.replacements)
+
+        # 隱私與統計
+        card, form = self._card(lay, "隱私與統計")
+        self.log_text = QCheckBox("在「最近活動」顯示辨識出的文字（只存在記憶體，關閉程式就清除）")
+        self.log_text.setChecked(cfg["privacy"]["log_text"])
+        form.addRow(self.log_text)
+        self.stats_on = QCheckBox("記錄使用統計（只有時間與字數，不含內容）")
+        self.stats_on.setChecked(cfg["stats"]["enabled"])
+        form.addRow(self.stats_on)
+        self.cpm = QSpinBox()
+        self.cpm.setRange(5, 300)
+        self.cpm.setSuffix(" 字／分鐘")
+        self.cpm.setValue(int(cfg["stats"]["typing_cpm"]))
+        form.addRow("你的打字速度", self.cpm)
+        card.body.addWidget(label("打字速度用來估算「省下的時間」。", "muted"))
+        card.body.addWidget(
+            label("API 金鑰存在 Windows 認證管理員，不會寫進設定檔。", "muted", wrap=True)
+        )
+
+        lay.addStretch(1)
+        old = self.scroll.takeWidget()
+        if old:
+            old.deleteLater()
+        self.scroll.setWidget(root)
+        self.note.setText("")
+
+    def _card(self, lay, title: str):
+        card = Card(title)
+        form = _form()
+        card.body.addLayout(form)
+        lay.addWidget(card)
+        return card, form
+
+    # ---- 錄製快捷鍵 ----
+
+    def _capture_hotkey(self) -> None:
+        engine = self.window.engine
+        self.capture_btn.setText("請按一個鍵…")
+        self.capture_btn.setEnabled(False)
+        was_paused = engine.paused
+        engine.set_paused(True)
+
+        def wait():
+            import keyboard
+
+            name = ""
+            try:
+                while True:
+                    event = keyboard.read_event(suppress=False)
+                    if event.event_type == keyboard.KEY_DOWN:
+                        name = event.name or ""
+                        break
+            finally:
+                engine.set_paused(was_paused)
+                self._hotkey.captured.emit(name)
+
+        threading.Thread(target=wait, daemon=True).start()
+
+    def _hotkey_captured(self, name: str) -> None:
+        if name:
+            self.hotkey.setCurrentText(name.lower())
+        self.capture_btn.setText("按一下要用的鍵")
+        self.capture_btn.setEnabled(True)
+
+    # ---- 儲存 ----
+
+    def collect(self) -> dict:
+        cfg = copy.deepcopy(self.window.engine.config)
+        cfg["feedback"]["beep"] = self.beep.isChecked()
+        cfg["hotkey"]["key"] = self.hotkey.currentText().strip().lower() or "right ctrl"
+        cfg["hotkey"]["mode"] = self.mode.currentData()
+        cfg["audio"]["device"] = self.mic.currentData()
+
+        self.stt_service.write(cfg["stt"])
+        cfg["stt"]["model"] = self.stt_model.currentText().strip()
+        cfg["stt"]["language"] = self.language.currentData()
+
+        cfg["cleanup"]["enabled"] = self.cleanup_on.isChecked()
+        self.cleanup_service.write(cfg["cleanup"])
+        cfg["cleanup"]["model"] = self.cleanup_model.currentText().strip()
+        extra = dict(cfg["cleanup"].get("extra", {}))
+        extra.pop("reasoning_effort", None)
+        if self.effort.currentData():
+            extra["reasoning_effort"] = self.effort.currentData()
+        cfg["cleanup"]["extra"] = extra
+        cfg["cleanup"]["system_prompt"] = self.prompt.toPlainText().strip() + "\n"
+
+        cfg["output"]["method"] = self.method.currentData()
+        cfg["output"]["restore_clipboard"] = self.restore_clip.isChecked()
+        cfg["output"]["convert_to_traditional"] = self.traditional.isChecked()
+
+        cfg["vocabulary"]["terms"] = [t.strip() for t in self.terms.toPlainText().splitlines() if t.strip()]
+        cfg["vocabulary"]["replacements"] = parse_replacements(self.replacements.toPlainText())
+
+        cfg["privacy"]["log_text"] = self.log_text.isChecked()
+        cfg["stats"]["enabled"] = self.stats_on.isChecked()
+        cfg["stats"]["typing_cpm"] = self.cpm.value()
+        return cfg
+
+    def keys_to_store(self) -> dict[str, str]:
+        """要寫入認證管理員的金鑰。兩組欄位共用同一個名稱時，以有修改過的為準。"""
+        forms = [self.stt_service]
+        if self.cleanup_on.isChecked():
+            forms.append(self.cleanup_service)
+        out: dict[str, str] = {}
+        for f in sorted(forms, key=lambda f: f.key.isModified()):
+            if f.key.isModified() or f.env not in out:
+                out[f.env] = f.key.text().strip()
+        return out
+
+    def save(self) -> None:
+        cfg = self.collect()
+        error = self.window.save_settings(cfg, self.keys_to_store(), self.autostart.isChecked())
+        if error:
+            self.note.setText(f"⚠ {error}")
+        else:
+            self.note.setText("已儲存，設定已生效")
+            for f in (self.stt_service, self.cleanup_service):
+                f.legacy_key = ""
+                f.key.setModified(False)
+
+
+def parse_replacements(text: str) -> dict[str, str]:
+    out = {}
+    for line in text.splitlines():
+        for sep in ("→", "->", "=", "＝"):
+            if sep in line:
+                wrong, right = line.split(sep, 1)
+                if wrong.strip():
+                    out[wrong.strip()] = right.strip()
+                break
+    return out
