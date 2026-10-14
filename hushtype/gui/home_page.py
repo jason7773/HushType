@@ -21,7 +21,7 @@ from .. import autostart
 from ..hotkeys import key_label
 from ..stats import load_summary
 from . import theme
-from .widgets import Card, Heatmap, StatTile, label
+from .widgets import Card, HeatLegend, Heatmap, HeroTitle, StatTile, icon_label, label
 
 HINTS = {
     "idle": "{how}「{key}」說話，文字會出現在游標位置",
@@ -61,7 +61,7 @@ class HomePage(QScrollArea):
         root.setObjectName("page")
         self.setWidget(root)
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(32, 28, 32, 32)
+        lay.setContentsMargins(28, 26, 28, 32)
         lay.setSpacing(16)
 
         # 標題 + 快捷鍵
@@ -69,11 +69,13 @@ class HomePage(QScrollArea):
         head.setSpacing(16)
         titles = QVBoxLayout()
         titles.setSpacing(4)
-        titles.addWidget(label("開口，就寫好了", "hero"))
+        titles.addWidget(label("HUSHTYPE・悄聲", "eyebrow"))
+        titles.addWidget(HeroTitle("開口，就寫好了", 38))
         titles.addWidget(label("錄音和文字只送到你自己選的服務，其他地方一律不送。", "secondary"))
         head.addLayout(titles, 1)
-        key_card = Card()
+        key_card = Card(radius=18)
         key_card.setObjectName("keyCard")
+        key_card.setMinimumWidth(160)
         key_card.body.setSpacing(6)
         key_card.body.addWidget(label("快捷鍵", "muted"))
         self.key_chip = label("", "keyChip")
@@ -84,7 +86,7 @@ class HomePage(QScrollArea):
         lay.addLayout(head)
 
         # 有新版時才出現
-        self.update_card = Card()
+        self.update_card = Card(tone="accent")
         self.update_card.setObjectName("updateCard")
         urow = QHBoxLayout()
         self.update_text = label("", wrap=True)
@@ -159,7 +161,7 @@ class HomePage(QScrollArea):
         cal.body.addWidget(self.heatmap)
         legend = QHBoxLayout()
         legend.addStretch(1)
-        legend.addWidget(label("較少 ▢ ▣ ■ 較多", "muted"))
+        legend.addWidget(HeatLegend())
         cal.body.addLayout(legend)
         lay.addWidget(cal)
 
@@ -267,13 +269,20 @@ class HomePage(QScrollArea):
             if w:
                 w.hide()
                 w.deleteLater()
+        c = theme.current
         for i, (name, text, ok) in enumerate(rows):
             self.grid.addWidget(label(name, "secondary"), i, 0)
+            cell = QWidget()
+            h = QHBoxLayout(cell)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(6)
+            if ok is not None:
+                h.addWidget(icon_label("check" if ok else "cross", c["good"] if ok else c["bad"], 16), 0, Qt.AlignTop)
             value = label(text, wrap=True)
             if ok is not None:
                 value.setObjectName("good" if ok else "bad")
-                value.setText(("✓ " if ok else "✗ ") + text)
-            self.grid.addWidget(value, i, 1)
+            h.addWidget(value, 1)
+            self.grid.addWidget(cell, i, 1)
 
     def show_update(self, text: str | None, busy: bool = False) -> None:
         self.update_card.setVisible(text is not None)

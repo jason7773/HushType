@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from .. import __version__, autostart, hotkeys, keystore
 from ..config import DEFAULT_CLEANUP_PROMPT
 from . import theme
-from .widgets import Card, label
+from .widgets import Card, HeroTitle, label
 
 HOTKEYS = [
     "right ctrl", "right alt", "right shift", "caps lock", "f8", "f9", "f10", "f12", "scroll lock", "pause",
@@ -47,7 +47,7 @@ CLEANUP_MODELS = {
 PROVIDER_NOTES = {
     "groq": "Groq：API 資料不會拿去訓練模型。",
     "openai": "OpenAI：API 資料預設不會拿去訓練模型，但會保留最多 30 天供濫用審查。",
-    "gemini": "⚠ Gemini 免費方案的內容可能被 Google 拿去改善產品。機密內容請先在 Google AI Studio 開啟付費方案。",
+    "gemini": "注意：Gemini 免費方案的內容可能被 Google 拿去改善產品。機密內容請先在 Google AI Studio 開啟付費方案。",
     "openai_compatible": "資料會送到你填的網址。填本機網址（127.0.0.1）時完全不出你的電腦。",
 }
 LANGUAGES = [("中文", "zh"), ("英文", "en"), ("自動偵測", "")]
@@ -197,8 +197,9 @@ class SettingsPage(QWidget):
 
         bar = QWidget()
         bar.setObjectName("saveBar")
+        bar.setAttribute(Qt.WA_StyledBackground, True)
         bar_lay = QHBoxLayout(bar)
-        bar_lay.setContentsMargins(28, 12, 28, 12)
+        bar_lay.setContentsMargins(20, 10, 12, 10)
         self.note = label("", "muted")
         bar_lay.addWidget(self.note, 1)
         self.revert_btn = QPushButton("取消變更")
@@ -208,12 +209,15 @@ class SettingsPage(QWidget):
         self.save_btn.clicked.connect(self.save)
         bar_lay.addWidget(self.revert_btn)
         bar_lay.addWidget(self.save_btn)
-        outer.addWidget(bar)
+        holder = QHBoxLayout()
+        holder.setContentsMargins(28, 8, 38, 0)
+        holder.addWidget(bar)
+        outer.addLayout(holder)
 
         self._wheel_guard = _WheelGuard(self)
         self._hotkey = _HotkeySignal()
         self._hotkey.captured.connect(self._hotkey_captured)
-        self._hotkey.failed.connect(lambda msg: self.note.setText(f"⚠ 無法錄製按鍵：{msg}"))
+        self._hotkey.failed.connect(lambda msg: self.note.setText(f"無法錄製按鍵：{msg}"))
         self.load()
 
     # ---- 建立表單 ----
@@ -223,9 +227,9 @@ class SettingsPage(QWidget):
         root = QWidget()
         root.setObjectName("page")
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(28, 24, 28, 28)
+        lay.setContentsMargins(28, 26, 28, 32)
         lay.setSpacing(16)
-        lay.addWidget(label("設定", "h1"))
+        lay.addWidget(HeroTitle("設定", 32))
 
         # 一般
         card, form = self._card(lay, "一般")
@@ -239,6 +243,9 @@ class SettingsPage(QWidget):
         self.overlay = QCheckBox("錄音與轉譯時，在螢幕下方顯示小視窗")
         self.overlay.setChecked(cfg["ui"]["overlay"])
         form.addRow(self.overlay)
+        self.animations = QCheckBox("流動的極光背景與換頁動畫（關掉可以省一點電）")
+        self.animations.setChecked(cfg["ui"].get("animations", True))
+        form.addRow(self.animations)
         self.theme = _combo(theme.THEMES, cfg["ui"]["theme"])
         form.addRow("外觀", self.theme)
         self.check_updates = QCheckBox("啟動時自動檢查新版")
@@ -413,6 +420,7 @@ class SettingsPage(QWidget):
         cfg = copy.deepcopy(self.window.engine.config)
         cfg["feedback"]["beep"] = self.beep.isChecked()
         cfg["ui"]["overlay"] = self.overlay.isChecked()
+        cfg["ui"]["animations"] = self.animations.isChecked()
         cfg["ui"]["theme"] = self.theme.currentData()
         cfg["ui"]["check_updates"] = self.check_updates.isChecked()
         cfg["hotkey"]["key"] = self.hotkey.currentData() or "right ctrl"
@@ -458,7 +466,7 @@ class SettingsPage(QWidget):
         cfg = self.collect()
         error = self.window.save_settings(cfg, self.keys_to_store(), self.autostart.isChecked())
         if error:
-            self.note.setText(f"⚠ {error}")
+            self.note.setText(error)
         else:
             self.note.setText("已儲存，設定已生效")
             for f in (self.stt_service, self.cleanup_service):

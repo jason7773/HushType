@@ -72,6 +72,7 @@ DEFAULTS: dict = {
     "ui": {
         "theme": "system",  # system：跟隨 Windows；light；dark
         "overlay": True,  # 錄音時在螢幕下方顯示小視窗
+        "animations": True,  # 流動的極光背景與換頁動畫
         "check_updates": True,  # 啟動時檢查 GitHub 上有沒有新版
     },
     "stats": {

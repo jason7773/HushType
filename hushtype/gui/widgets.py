@@ -1,4 +1,4 @@
-"""共用元件：卡片、數字方塊、長條圖。"""
+"""共用元件：極光背景、玻璃卡片、漸層標題、數字方塊、圖表。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,20 @@ from typing import Callable
 
 from datetime import date, timedelta
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QFrame, QLabel, QLayout, QSizePolicy, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QImage,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from . import theme
 
@@ -22,6 +33,14 @@ def label(text: str = "", name: str | None = None, *, wrap: bool = False) -> QLa
     return lab
 
 
+def icon_label(kind: str, color: str | None = None, size: int = 16) -> QLabel:
+    lab = QLabel()
+    lab.setPixmap(theme.glyph_pixmap(kind, color, size))
+    lab.setFixedSize(size, size)
+    lab.setStyleSheet("background: transparent;")
+    return lab
+
+
 def divider() -> QFrame:
     line = QFrame()
     line.setObjectName("divider")
@@ -29,12 +48,220 @@ def divider() -> QFrame:
     return line
 
 
-class Card(QFrame):
-    def __init__(self, title: str | None = None, parent: QWidget | None = None):
+def _mix(a: QColor, b: QColor, t: float) -> QColor:
+    return QColor(
+        round(a.red() + (b.red() - a.red()) * t),
+        round(a.green() + (b.green() - a.green()) * t),
+        round(a.blue() + (b.blue() - a.blue()) * t),
+    )
+
+
+class AuroraBackground(QWidget):
+    """整個視窗的底：幾團柔和的彩色光暈緩慢飄動，狀態改變時換色。
+
+    先畫在很小的圖上再放大，光暈自然模糊，也省效能。視窗不在前景時停止動畫。
+    """
+
+    SCALE = 6
+    BLOBS = ((0.18, 0.12, 0.62), (0.86, 0.18, 0.55), (0.70, 0.92, 0.60), (0.12, 0.85, 0.48))
+
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setAttribute(Qt.WA_OpaquePaintEvent)
+        self._t = 0.0
+        self._colors = [QColor(x) for x in theme.current["aurora"]]
+        self._from = list(self._colors)
+        self._to = list(self._colors)
+        self._mix = 1.0
+        self.animated = True
+        self._timer = QTimer(self)
+        self._timer.setInterval(80)
+        self._timer.timeout.connect(self._tick)
+
+    def set_running(self, on: bool) -> None:
+        if on and self.animated:
+            self._timer.start()
+        elif self._mix >= 1.0:
+            self._timer.stop()
+
+    def set_colors(self, colors) -> None:
+        target = [QColor(x) for x in colors]
+        if [c.name() for c in target] == [c.name() for c in self._to]:
+            return
+        self._from, self._to, self._mix = list(self._colors), target, 0.0
+        self._timer.start()
+
+    def _tick(self) -> None:
+        if self.animated:
+            self._t += 0.08
+        if self._mix < 1.0:
+            self._mix = min(1.0, self._mix + 0.07)
+            k = 1 - (1 - self._mix) ** 3
+            self._colors = [_mix(a, b, k) for a, b in zip(self._from, self._to)]
+            if self._mix >= 1.0 and not (self.animated and self.window().isActiveWindow()):
+                self._timer.stop()
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        c = theme.current
+        w, h = max(self.width() // self.SCALE, 8), max(self.height() // self.SCALE, 8)
+        img = QImage(w, h, QImage.Format_ARGB32_Premultiplied)
+        img.fill(QColor(c["aurora_base"]))
+        p = QPainter(img)
+        p.setRenderHint(QPainter.Antialiasing)
+        alpha = c["aurora_alpha"]
+        for i, ((bx, by, br), col) in enumerate(zip(self.BLOBS, self._colors)):
+            t = self._t * (0.11 + 0.03 * i) + i * 1.7
+            cx = (bx + 0.08 * math.sin(t) + 0.04 * math.sin(t * 2.3)) * w
+            cy = (by + 0.07 * math.cos(t * 0.9) + 0.03 * math.sin(t * 1.7)) * h
+            radius = br * max(w, h) * (1 + 0.06 * math.sin(t * 1.3))
+            grad = QRadialGradient(QPointF(cx, cy), radius)
+            inner = QColor(col)
+            inner.setAlphaF(alpha)
+            outer = QColor(col)
+            outer.setAlphaF(0)
+            grad.setColorAt(0, inner)
+            grad.setColorAt(1, outer)
+            p.fillRect(QRectF(0, 0, w, h), grad)
+        p.end()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.drawImage(QRectF(self.rect()), img)
+        painter.end()
+
+
+class GlassFrame(QFrame):
+    """半透明玻璃面板：上亮下暗的填色、漸層邊框，滑鼠移過時有一圈跟著游標的光暈。"""
+
+    def __init__(self, parent: QWidget | None = None, *, radius: float = 20, tone: str = "card", spotlight: bool = True):
+        super().__init__(parent)
+        self.radius = radius
+        self.tone = tone
+        self.spotlight = spotlight
+        self.spot: QPointF | None = None
+
+    def set_spot(self, pos: QPointF | None) -> None:
+        if pos != self.spot:
+            self.spot = pos
+            self.update()
+
+    def paintEvent(self, _event) -> None:
+        c = theme.current
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(r, self.radius, self.radius)
+
+        fill = QLinearGradient(0, 0, 0, r.height())
+        fill.setColorAt(0, theme.qcolor(c["glass_top"]))
+        fill.setColorAt(1, theme.qcolor(c["glass_bottom"]))
+        p.fillPath(path, fill)
+        if self.tone == "accent":
+            tint = QLinearGradient(0, 0, r.width(), r.height())
+            a, b = QColor(theme.BRAND[0]), QColor(theme.BRAND[1])
+            a.setAlphaF(0.22)
+            b.setAlphaF(0.12)
+            tint.setColorAt(0, a)
+            tint.setColorAt(1, b)
+            p.fillPath(path, tint)
+        if self.spot is not None:
+            glow = QRadialGradient(self.spot, 240)
+            col = QColor(255, 255, 255)
+            col.setAlphaF(0.10 if theme.is_dark() else 0.45)
+            glow.setColorAt(0, col)
+            col = QColor(col)
+            col.setAlphaF(0)
+            glow.setColorAt(1, col)
+            p.fillPath(path, glow)
+
+        edge = QLinearGradient(0, 0, 0, r.height())
+        edge.setColorAt(0, theme.qcolor(c["glass_edge"]))
+        shade = theme.qcolor(c["glass_shade"])
+        edge.setColorAt(1, shade)
+        p.setPen(QPen(QBrush(edge), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        p.end()
+
+
+class Spotlight(QObject):
+    """把滑鼠位置告訴底下的玻璃卡片，讓光暈跟著游標走。"""
+
+    def __init__(self, root: QWidget):
+        super().__init__(root)
+        self.root = root
+        self.current: GlassFrame | None = None
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.MouseMove:
+            w = QApplication.widgetAt(event.globalPosition().toPoint())
+            target = None
+            while w is not None:
+                if isinstance(w, GlassFrame) and w.spotlight:
+                    target = w
+                    break
+                if w is self.root:
+                    break
+                w = w.parentWidget()
+            if self.current is not None and self.current is not target:
+                try:
+                    self.current.set_spot(None)
+                except RuntimeError:
+                    pass
+            self.current = target
+            if target is not None:
+                target.set_spot(QPointF(target.mapFromGlobal(event.globalPosition().toPoint())))
+        elif event.type() == QEvent.Leave and obj is self.root and self.current is not None:
+            self.current.set_spot(None)
+            self.current = None
+        return False
+
+
+class HeroTitle(QWidget):
+    """大標題：文字用深色到品牌紫藍的漸層填色。"""
+
+    def __init__(self, text: str, size: int = 34):
+        super().__init__()
+        self.text = text
+        self._font = QFont(self.font())
+        self._font.setPixelSize(size)
+        self._font.setWeight(QFont.ExtraBold)
+        fm = QFontMetrics(self._font)
+        self.setMinimumHeight(fm.height() + 6)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def sizeHint(self) -> QSize:
+        fm = QFontMetrics(self._font)
+        return QSize(fm.horizontalAdvance(self.text) + 8, fm.height() + 6)
+
+    def setText(self, text: str) -> None:
+        self.text = text
+        self.updateGeometry()
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        fm = QFontMetrics(self._font)
+        width = fm.horizontalAdvance(self.text)
+        grad = QLinearGradient(0, 0, max(width, 1), 0)
+        grad.setColorAt(0, QColor(theme.current["text"]))
+        grad.setColorAt(0.45, QColor(theme.current["text"]))
+        grad.setColorAt(0.8, QColor(theme.BRAND[0]))
+        grad.setColorAt(1, QColor(theme.BRAND[1]))
+        path = QPainterPath()
+        path.addText(QPointF(1, fm.ascent() + 2), self._font, self.text)
+        p.fillPath(path, grad)
+        p.end()
+
+
+class Card(GlassFrame):
+    def __init__(self, title: str | None = None, parent: QWidget | None = None, **kw):
+        super().__init__(parent, **kw)
         self.setObjectName("card")
         self.body = QVBoxLayout(self)
-        self.body.setContentsMargins(18, 16, 18, 16)
+        self.body.setContentsMargins(20, 18, 20, 18)
         self.body.setSpacing(10)
         if title:
             self.body.addWidget(label(title, "h2"))
@@ -133,9 +360,10 @@ class BarChart(QWidget):
         font.setPixelSize(11)
         p.setFont(font)
 
+        grid = theme.qcolor(c["glass_shade"])
         for i in range(5):
             y = self.T + ph - ph * i / 4
-            p.setPen(QPen(QColor(c["grid"]), 1))
+            p.setPen(QPen(grid, 1, Qt.DashLine if i else Qt.SolidLine))
             p.drawLine(QPointF(self.L, y), QPointF(self.width() - self.R, y))
             p.setPen(QColor(c["text_muted"]))
             p.drawText(QRectF(0, y - 8, self.L - 6, 16), Qt.AlignRight | Qt.AlignVCenter, _fmt(top * i / 4))
@@ -147,7 +375,7 @@ class BarChart(QWidget):
             x = self.L + i * step + (step - bw) / 2
             y = self.T + ph - h
             if h > 0:
-                r = min(4, bw / 2, h)
+                r = min(6, bw / 2, h)
                 path = QPainterPath()
                 path.moveTo(x, self.T + ph)
                 path.lineTo(x, y + r)
@@ -156,13 +384,18 @@ class BarChart(QWidget):
                 path.quadTo(x + bw, y, x + bw, y + r)
                 path.lineTo(x + bw, self.T + ph)
                 path.closeSubpath()
-                p.fillPath(path, QColor(c["accent_hover"] if i == self.hover else c["accent"]))
+                grad = QLinearGradient(0, y, 0, self.T + ph)
+                top_col, bottom_col = QColor(theme.BRAND[1]), QColor(theme.BRAND[0])
+                bottom_col.setAlphaF(0.95 if i == self.hover else 0.55)
+                if i == self.hover:
+                    top_col = top_col.lighter(120)
+                grad.setColorAt(0, top_col)
+                grad.setColorAt(1, bottom_col)
+                p.fillPath(path, grad)
             if i % every == 0:
                 p.setPen(QColor(c["text_muted"]))
                 cx = self.L + i * step + step / 2
                 p.drawText(QRectF(cx - 30, self.height() - self.B + 6, 60, 16), Qt.AlignCenter, self.label_of(d))
-        p.setPen(QPen(QColor(c["text_muted"]), 1))
-        p.drawLine(QPointF(self.L, self.T + ph), QPointF(self.width() - self.R, self.T + ph))
         del fm
         p.end()
 
@@ -231,8 +464,9 @@ class Heatmap(QWidget):
         p.setFont(font)
         start, weeks = self._start(), self._weeks()
         top = max(self.counts.values(), default=1)
-        accent = QColor(c["accent"])
-        empty = QColor(c["surface_alt"])
+        levels = heat_colors()
+        empty = QColor(c["text_muted"])
+        empty.setAlphaF(0.13)
         p.setPen(QColor(c["text_muted"]))
         for dow in (1, 3, 5):
             p.drawText(QRectF(0, self._cell(0, dow).top(), self.LEFT - 6, self.CELL), Qt.AlignRight | Qt.AlignVCenter, self.DAYS[dow])
@@ -243,11 +477,7 @@ class Heatmap(QWidget):
                 if d > self.today:
                     continue
                 level = self._level(self.counts.get(d.isoformat(), 0), top)
-                if level:
-                    col = QColor(accent)
-                    col.setAlphaF((0.25, 0.45, 0.7, 1.0)[level - 1])
-                else:
-                    col = empty
+                col = levels[level - 1] if level else empty
                 p.setPen(Qt.NoPen)
                 p.setBrush(col)
                 p.drawRoundedRect(self._cell(w, dow), 3, 3)
@@ -269,6 +499,52 @@ class Heatmap(QWidget):
                 QToolTip.showText(event.globalPosition().toPoint(), f"{d:%Y/%m/%d}：{n} 次" if n else f"{d:%Y/%m/%d}：沒有使用", self)
                 return
         QToolTip.hideText()
+
+
+def heat_colors() -> list[QColor]:
+    """活躍日曆的四個深淺：淡藍 → 品牌紫。"""
+    a, b = QColor(theme.BRAND[1]), QColor(theme.BRAND[0])
+    out = []
+    for i, alpha in enumerate((0.30, 0.55, 0.80, 1.0)):
+        col = _mix(a, b, i / 3)
+        col.setAlphaF(alpha)
+        out.append(col)
+    return out
+
+
+class HeatLegend(QWidget):
+    """「較少 ■■■■ 較多」圖例，色塊用畫的。"""
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedHeight(16)
+        self.setMinimumWidth(150)
+
+    def paintEvent(self, _event) -> None:
+        c = theme.current
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        font = p.font()
+        font.setPixelSize(11)
+        p.setFont(font)
+        fm = QFontMetrics(font)
+        right = self.width()
+        more, less = "較多", "較少"
+        p.setPen(QColor(c["text_muted"]))
+        x = right - fm.horizontalAdvance(more)
+        p.drawText(QPointF(x, 12), more)
+        x -= 8
+        empty = QColor(c["text_muted"])
+        empty.setAlphaF(0.13)
+        for col in reversed([empty, *heat_colors()]):
+            x -= 12
+            p.setPen(Qt.NoPen)
+            p.setBrush(col)
+            p.drawRoundedRect(QRectF(x, 2, 11, 11), 3, 3)
+            x -= 3
+        p.setPen(QColor(c["text_muted"]))
+        p.drawText(QPointF(x - 5 - fm.horizontalAdvance(less), 12), less)
+        p.end()
 
 
 class FlowLayout(QLayout):

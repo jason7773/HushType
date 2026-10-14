@@ -9,11 +9,12 @@ import time
 import tomllib
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -42,7 +43,7 @@ from ..hotkeys import key_label
 from ..history import History
 from ..config import data_dir
 from .update import UpdateController
-from .widgets import label
+from .widgets import AuroraBackground, GlassFrame, Spotlight, label
 
 log = logging.getLogger(__name__)
 
@@ -77,26 +78,31 @@ class MainWindow(QMainWindow):
         self.resize(940, 700)
         self.setMinimumSize(720, 520)
 
-        central = QWidget()
+        self.aurora = AuroraBackground()
+        self.aurora.animated = config["ui"].get("animations", True)
+        central = self.aurora
         row = QHBoxLayout(central)
-        row.setContentsMargins(0, 0, 0, 0)
+        row.setContentsMargins(12, 12, 0, 12)
         row.setSpacing(0)
-        side = QWidget()
+        side = GlassFrame(radius=22, spotlight=False)
         side.setObjectName("side")
-        side.setAttribute(Qt.WA_StyledBackground, True)
-        side.setFixedWidth(190)
+        side.setFixedWidth(206)
         side_lay = QVBoxLayout(side)
         side_lay.setContentsMargins(0, 0, 0, 0)
         side_lay.setSpacing(0)
         brand = QHBoxLayout()
-        brand.setContentsMargins(20, 20, 20, 10)
-        brand.setSpacing(10)
+        brand.setContentsMargins(18, 20, 16, 14)
+        brand.setSpacing(11)
         logo = QLabel()
-        pm = theme.make_icon_pixmap(None, 56)
+        pm = theme.make_icon_pixmap(None, 72)
         pm.setDevicePixelRatio(2)
         logo.setPixmap(pm)
         brand.addWidget(logo)
-        brand.addWidget(label("Hushtype", "brand"), 1)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(label("Hushtype", "brand"))
+        names.addWidget(label("悄聲・語音輸入", "brandSub"))
+        brand.addLayout(names, 1)
         side_lay.addLayout(brand)
         self.nav = self._nav_list(NAV_TOP)
         side_lay.addWidget(self.nav, 1)
@@ -105,13 +111,14 @@ class MainWindow(QMainWindow):
         side_lay.addWidget(self.nav_bottom)
         self.refresh_nav_icons()
         version = label(f"版本 {__version__}", "muted")
-        version.setContentsMargins(22, 0, 0, 14)
+        version.setContentsMargins(24, 0, 0, 16)
         version.setAutoFillBackground(False)
         side_lay.addWidget(version)
         row.addWidget(side)
 
         self.history = History(data_dir() / "history.db", config["history"]["retention"])
         self.pages = QStackedWidget()
+        self._page_fade = None
         self.home_page = HomePage(self)
         self.history_page = HistoryPage(self)
         self.dictionary_page = DictionaryPage(self)
@@ -121,6 +128,8 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         row.addWidget(self.pages, 1)
         self.setCentralWidget(central)
+        self.spotlight = Spotlight(self)
+        QApplication.instance().installEventFilter(self.spotlight)
         self.nav.currentRowChanged.connect(lambda i: i >= 0 and self._select(i))
         self.nav_bottom.currentRowChanged.connect(lambda i: i >= 0 and self._select(len(NAV_TOP) + i))
         self._select(PAGE_HOME)
@@ -160,13 +169,19 @@ class MainWindow(QMainWindow):
         return nav
 
     def refresh_nav_icons(self) -> None:
-        color = theme.current["text_secondary"]
-        for nav, items in ((self.nav, NAV_TOP), (self.nav_bottom, NAV_BOTTOM)):
+        current = self.pages.currentIndex() if hasattr(self, "pages") else 0
+        for offset, nav, items in ((0, self.nav, NAV_TOP), (len(NAV_TOP), self.nav_bottom, NAV_BOTTOM)):
             for i, (_, kind) in enumerate(items):
+                selected = offset + i == current
+                color = theme.current["accent"] if selected else theme.current["text_secondary"]
                 nav.item(i).setIcon(theme.nav_icon(kind, color))
 
     def apply_theme(self) -> None:
         theme.apply(QApplication.instance(), self.engine.config["ui"]["theme"])
+        self.aurora.animated = self.engine.config["ui"].get("animations", True)
+        self.aurora.set_colors(theme.STATE_AURORA.get(self.engine.state, theme.current["aurora"]))
+        self.aurora.set_running(self.isActiveWindow())
+        self._style_title_bar()
         self.refresh_nav_icons()
         self.home_page.set_state(self.engine.state)
         self.home_page.heatmap.update()
@@ -178,10 +193,58 @@ class MainWindow(QMainWindow):
             nav.blockSignals(True)
             nav.setCurrentRow(row)
             nav.blockSignals(False)
+        changed = self.pages.currentIndex() != i
         self.pages.setCurrentIndex(i)
         page = self.pages.widget(i)
+        self.refresh_nav_icons()
+        if changed and self.engine.config["ui"].get("animations", True):
+            self._fade_in(page)
         if hasattr(page, "refresh") and page is not self.settings_page:
             page.refresh()
+
+    def _fade_in(self, page: QWidget) -> None:
+        """換頁時新頁面淡入。"""
+        if self._page_fade is not None:
+            self._page_fade.stop()
+        effect = QGraphicsOpacityEffect(page)
+        page.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(240)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.finished.connect(lambda: page.setGraphicsEffect(None))
+        anim.start()
+        self._page_fade = anim
+
+    def _style_title_bar(self) -> None:
+        """Windows 10/11：標題列跟著深色模式，Windows 11 用圓角。"""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+
+            hwnd = int(self.winId())
+            dark = ctypes.c_int(1 if theme.is_dark() else 0)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
+            round_corners = ctypes.c_int(2)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(round_corners), ctypes.sizeof(round_corners))
+        except Exception as e:
+            log.debug("無法設定標題列樣式：%s", e)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._style_title_bar()
+        self.aurora.set_running(True)
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.aurora.set_running(False)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.ActivationChange and hasattr(self, "aurora"):
+            self.aurora.set_running(self.isActiveWindow() and self.isVisible())
 
     def show_page(self, i: int) -> None:
         self._select(i)
@@ -238,6 +301,7 @@ class MainWindow(QMainWindow):
             if state == "recording":
                 self.card.dismiss()
             self.home_page.set_state(state)
+            self.aurora.set_colors(theme.STATE_AURORA.get(state, theme.current["aurora"]))
             self._update_overlay(state)
         elif kind == "result":
             text = data.get("text")
@@ -375,6 +439,7 @@ class MainWindow(QMainWindow):
 
     def quit(self) -> None:
         self._quitting = True
+        QApplication.instance().removeEventFilter(self.spotlight)
         try:
             self.engine.unbind()
         except Exception:
@@ -404,7 +469,7 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
     font = QFont()
-    font.setFamilies(["Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC"])
+    font.setFamilies(["Segoe UI Variable Text", "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC"])
     font.setPointSizeF(10)
     app.setFont(font)
 

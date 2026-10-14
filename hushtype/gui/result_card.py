@@ -7,21 +7,26 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
 from PySide6.QtGui import QCursor, QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from .theme import glyph_icon
+
 STYLE = """
-#cardFrame { background: rgba(20, 20, 22, 240); border: 1px solid rgba(255, 255, 255, 30); border-radius: 14px; }
+#cardFrame {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(36, 34, 62, 242), stop:1 rgba(16, 16, 30, 246));
+    border: 1px solid rgba(255, 255, 255, 22); border-top-color: rgba(255, 255, 255, 70); border-radius: 18px;
+}
 QLabel { color: rgba(255, 255, 255, 230); background: transparent; }
 #cardTitle { color: rgba(255, 255, 255, 150); font-size: 12px; }
 #cardTitle[error="true"] { color: #ff9b9b; }
-QPushButton { color: white; background: rgba(255, 255, 255, 30); border: none; border-radius: 8px; padding: 5px 14px; }
+QPushButton { color: white; background: rgba(255, 255, 255, 30); border: none; border-radius: 10px; padding: 6px 16px; font-weight: 600; }
 QPushButton:hover { background: rgba(255, 255, 255, 50); }
-QPushButton#cardPrimary { background: #3987e5; }
-QPushButton#cardPrimary:hover { background: #6aa6ee; }
-QPushButton#cardClose { background: transparent; color: rgba(255, 255, 255, 140); padding: 2px 6px; font-size: 14px; }
-QPushButton#cardClose:hover { color: white; }
+QPushButton#cardPrimary { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6d5dfc, stop:1 #2f80ed); border: 1px solid rgba(255, 255, 255, 60); }
+QPushButton#cardPrimary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7f71ff, stop:1 #4893f5); }
+QPushButton#cardClose { background: transparent; padding: 3px; border-radius: 8px; }
+QPushButton#cardClose:hover { background: rgba(255, 255, 255, 30); }
 """
 
 
@@ -56,7 +61,9 @@ class ResultCard(QWidget):
         self.title = QLabel()
         self.title.setObjectName("cardTitle")
         top.addWidget(self.title, 1)
-        close = QPushButton("✕")
+        close = QPushButton()
+        close.setIcon(glyph_icon("close", "#c9c9de"))
+        close.setIconSize(QSize(16, 16))
         close.setObjectName("cardClose")
         close.setFocusPolicy(Qt.NoFocus)
         close.clicked.connect(self.dismiss)
@@ -117,7 +124,7 @@ class ResultCard(QWidget):
     def _act(self) -> None:
         if self.mode == "text":
             QApplication.clipboard().setText(self.text)
-            self.action.setText("已複製 ✓")
+            self.action.setText("已複製")
             self._hide_timer.start(1200)
         elif self.mode == "error":
             self.dismiss()

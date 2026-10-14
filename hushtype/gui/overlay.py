@@ -10,13 +10,17 @@ import time
 from typing import Callable
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QPainter
+from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
-BG = QColor(20, 20, 22, 235)
-BORDER = QColor(255, 255, 255, 28)
+BG_TOP = QColor(34, 32, 58, 236)
+BG_BOTTOM = QColor(16, 16, 30, 242)
+EDGE_TOP = QColor(255, 255, 255, 80)
+EDGE_BOTTOM = QColor(255, 255, 255, 14)
 BAR = QColor(255, 255, 255)
-RECORD_DOT = QColor("#e34948")
+BAR_TOP = QColor("#c3b8ff")
+BAR_BOTTOM = QColor("#5fb0ff")
+RECORD_DOT = QColor("#ff4f79")
 TEXT = QColor(255, 255, 255, 230)
 ERROR = QColor("#ff7b7b")
 
@@ -26,6 +30,7 @@ BAR_PHASES = (0.0, 1.7, 3.1, 4.4, 5.6)
 
 class Overlay(QWidget):
     W, H = 148, 44
+    PAD = 10  # 留給陰影的邊
     MARGIN_BOTTOM = 72
 
     def __init__(self, level: Callable[[], float]):
@@ -39,7 +44,7 @@ class Overlay(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setFixedSize(self.W, self.H)
+        self.setFixedSize(self.W + 2 * self.PAD, self.H + 2 * self.PAD)
         self._level_source = level
         self.mode = "hidden"  # hidden / recording / processing / error
         self.message = ""
@@ -109,7 +114,7 @@ class Overlay(QWidget):
     def _place(self) -> None:
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
-        self.move(area.center().x() - self.W // 2, area.bottom() - self.H - self.MARGIN_BOTTOM)
+        self.move(area.center().x() - self.width() // 2, area.bottom() - self.H - self.PAD - self.MARGIN_BOTTOM)
 
     def _tick(self) -> None:
         if self.mode == "recording":
@@ -121,10 +126,27 @@ class Overlay(QWidget):
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        # 柔和的陰影
+        p.setPen(Qt.NoPen)
+        for i in range(self.PAD, 0, -2):
+            shadow = QColor(0, 0, 0, int(22 * (1 - i / self.PAD) + 4))
+            p.setBrush(shadow)
+            r = QRectF(self.PAD - i, self.PAD - i + 3, self.W + 2 * i, self.H + 2 * i - 3)
+            p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        p.translate(self.PAD, self.PAD)
         rect = QRectF(0.5, 0.5, self.W - 1, self.H - 1)
-        p.setPen(BORDER)
-        p.setBrush(BG)
-        p.drawRoundedRect(rect, self.H / 2, self.H / 2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, self.H / 2, self.H / 2)
+        fill = QLinearGradient(0, 0, 0, self.H)
+        fill.setColorAt(0, BG_TOP)
+        fill.setColorAt(1, BG_BOTTOM)
+        p.fillPath(path, fill)
+        edge = QLinearGradient(0, 0, 0, self.H)
+        edge.setColorAt(0, EDGE_TOP)
+        edge.setColorAt(1, EDGE_BOTTOM)
+        p.setPen(QPen(edge, 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
         t = time.monotonic() - self._t0
 
         if self.mode == "recording":
@@ -141,13 +163,20 @@ class Overlay(QWidget):
         dot = QColor(RECORD_DOT)
         dot.setAlphaF(pulse)
         p.setPen(Qt.NoPen)
+        halo = QColor(RECORD_DOT)
+        halo.setAlphaF(0.25 * pulse)
+        p.setBrush(halo)
+        p.drawEllipse(QRectF(17, self.H / 2 - 7, 14, 14))
         p.setBrush(dot)
         p.drawEllipse(QRectF(20, self.H / 2 - 4, 8, 8))
 
         bar_w, gap, min_h, max_h = 6.0, 6.0, 6.0, 26.0
         total = len(BAR_WEIGHTS) * bar_w + (len(BAR_WEIGHTS) - 1) * gap
         x = 40 + (self.W - 40 - 16 - total) / 2
-        p.setBrush(BAR)
+        grad = QLinearGradient(0, (self.H - max_h) / 2, 0, (self.H + max_h) / 2)
+        grad.setColorAt(0, BAR_TOP)
+        grad.setColorAt(1, BAR_BOTTOM)
+        p.setBrush(grad)
         for weight, phase in zip(BAR_WEIGHTS, BAR_PHASES):
             wobble = 0.6 + 0.4 * math.sin(t * 9 + phase)
             idle = 0.08 * (0.5 + 0.5 * math.sin(t * 3 + phase))  # 沒聲音時也微微起伏

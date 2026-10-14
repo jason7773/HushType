@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ..stats import load_summary, open_html_report
-from .widgets import BarChart, Card, StatTile, label
+from .widgets import BarChart, Card, HeroTitle, StatTile, label
 
 METRICS = [("minutes", "說話分鐘", "分鐘"), ("count", "次數", "次"), ("chars", "字數", "字")]
 
@@ -36,11 +36,11 @@ class StatsPage(QScrollArea):
         root.setObjectName("page")
         self.setWidget(root)
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(28, 24, 28, 28)
+        lay.setContentsMargins(28, 26, 28, 32)
         lay.setSpacing(16)
 
         head = QHBoxLayout()
-        head.addWidget(label("使用統計", "h1"), 1)
+        head.addWidget(HeroTitle("使用統計", 32), 1)
         refresh = QPushButton("重新整理")
         refresh.clicked.connect(self.refresh)
         html = QPushButton("匯出成網頁報表")

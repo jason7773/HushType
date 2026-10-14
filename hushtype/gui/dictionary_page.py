@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -18,22 +18,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .widgets import Card, FlowLayout, divider, label
+from . import theme
+from .widgets import Card, FlowLayout, GlassFrame, HeroTitle, divider, icon_label, label
 
 
-class Chip(QFrame):
+class Chip(GlassFrame):
     def __init__(self, text: str, on_remove, *, learned: bool = False):
-        super().__init__()
+        super().__init__(radius=13, spotlight=False)
         self.setObjectName("chip")
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 6, 6, 6)
-        row.setSpacing(6)
-        mark = label("自動" if learned else "✦", "chipMark")
+        row.setContentsMargins(11, 6, 6, 6)
+        row.setSpacing(7)
         if learned:
+            mark = label("自動", "badge")
             mark.setToolTip("從你修改過的文字自動學到")
-        row.addWidget(mark)
+        else:
+            mark = icon_label("sparkle", theme.current["accent"], 12)
+        row.addWidget(mark, 0, Qt.AlignVCenter)
         row.addWidget(label(text))
-        remove = QPushButton("✕")
+        remove = QPushButton()
+        remove.setIcon(theme.glyph_icon("close", theme.current["text_muted"]))
+        remove.setIconSize(QSize(16, 16))
         remove.setObjectName("chipRemove")
         remove.setToolTip("刪除")
         remove.setCursor(Qt.PointingHandCursor)
@@ -50,10 +55,10 @@ class DictionaryPage(QScrollArea):
         root.setObjectName("page")
         self.setWidget(root)
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(32, 28, 32, 32)
+        lay.setContentsMargins(28, 26, 28, 32)
         lay.setSpacing(16)
 
-        lay.addWidget(label("字典", "hero"))
+        lay.addWidget(HeroTitle("字典", 32))
         lay.addWidget(
             label("專有名詞會提示給辨識與整理模型，讓人名、術語寫對；固定替換會在最後把錯字換掉。改了立即生效。", "secondary", wrap=True)
         )
@@ -128,7 +133,7 @@ class DictionaryPage(QScrollArea):
         self.right_input.setPlaceholderText("換成，例如：Python")
         self.right_input.returnPressed.connect(self.add_replacement)
         add.addWidget(self.wrong_input, 1)
-        add.addWidget(label("→", "secondary"))
+        add.addWidget(icon_label("arrow", theme.current["text_muted"], 16))
         add.addWidget(self.right_input, 1)
         add_btn = QPushButton("新增")
         add_btn.setObjectName("primary")
@@ -158,7 +163,7 @@ class DictionaryPage(QScrollArea):
         cfg["vocabulary"]["replacements"] = replacements
         cfg["vocabulary"].update(changes)
         error = self.window.save_settings(cfg, {}, None)
-        self.note.setText(f"⚠ {error}" if error else "已儲存，立即生效")
+        self.note.setText(error or "已儲存，立即生效")
         self.refresh()
 
     def add_terms(self) -> None:
@@ -239,12 +244,12 @@ class DictionaryPage(QScrollArea):
                 w.deleteLater()
         reps = [(k, v) for k, v in self.vocab["replacements"].items() if query in k.lower() or query in v.lower()]
         for wrong, right in reps:
-            row = QFrame()
+            row = GlassFrame(radius=14)
             row.setObjectName("entry")
             h = QHBoxLayout(row)
             h.setContentsMargins(14, 8, 8, 8)
             h.addWidget(label(wrong), 1)
-            h.addWidget(label("→", "secondary"))
+            h.addWidget(icon_label("arrow", theme.current["text_muted"], 16))
             h.addWidget(label(right or "（刪除）"), 1)
             remove = QPushButton("刪除")
             remove.setObjectName("ghost")

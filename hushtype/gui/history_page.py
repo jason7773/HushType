@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
 from ..history import RETENTIONS, Entry, disk_supported
 from ..stats import app_label
 from .settings_page import _combo
-from .widgets import Card, divider, label
+from . import theme
+from .widgets import Card, GlassFrame, HeroTitle, divider, icon_label, label
 
 MAX_ROWS = 300  # 一次顯示的筆數上限，避免頁面太長
 
@@ -37,13 +38,13 @@ def _day_title(d: date) -> str:
     return f"{d:%Y/%m/%d}"
 
 
-class EntryRow(QFrame):
+class EntryRow(GlassFrame):
     def __init__(self, page: "HistoryPage", entry: Entry):
-        super().__init__()
+        super().__init__(radius=16)
         self.setObjectName("entry")
         self.entry = entry
         row = QHBoxLayout(self)
-        row.setContentsMargins(16, 12, 10, 12)
+        row.setContentsMargins(18, 14, 12, 14)
         row.setSpacing(14)
         meta = QVBoxLayout()
         meta.setSpacing(2)
@@ -78,11 +79,11 @@ class HistoryPage(QScrollArea):
         root.setObjectName("page")
         self.setWidget(root)
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(32, 28, 32, 32)
+        lay.setContentsMargins(28, 26, 28, 32)
         lay.setSpacing(16)
 
         head = QHBoxLayout()
-        head.addWidget(label("歷史紀錄", "hero"), 1)
+        head.addWidget(HeroTitle("歷史紀錄", 32), 1)
         self.copy_last_btn = QPushButton("複製上一次結果")
         self.copy_last_btn.clicked.connect(self.copy_last)
         head.addWidget(self.copy_last_btn, 0, Qt.AlignVCenter)
@@ -103,7 +104,11 @@ class HistoryPage(QScrollArea):
         row.addWidget(self.retention, 0, Qt.AlignVCenter)
         keep.body.addLayout(row)
         keep.body.addWidget(divider())
-        keep.body.addWidget(label("🔒 你的口述內容是私密的", "h2"))
+        private = QHBoxLayout()
+        private.setSpacing(8)
+        private.addWidget(icon_label("lock", theme.current["accent"], 18))
+        private.addWidget(label("你的口述內容是私密的", "h2"), 1)
+        keep.body.addLayout(private)
         self.privacy = label("", "secondary", wrap=True)
         keep.body.addWidget(self.privacy)
         lay.addWidget(keep)
@@ -183,8 +188,10 @@ class HistoryPage(QScrollArea):
             self.entries_lay.addWidget(label(f"只顯示最近 {MAX_ROWS} 筆。", "muted"))
 
     def add_event(self, text: str, ok: bool = True) -> None:
-        mark = "" if ok else "⚠ "
-        self.events.insertItem(0, QListWidgetItem(f"{datetime.now():%H:%M:%S}　{mark}{text}"))
+        item = QListWidgetItem(f"{datetime.now():%H:%M:%S}　{text}")
+        if not ok:
+            item.setIcon(theme.glyph_icon("warn", theme.current["bad"]))
+        self.events.insertItem(0, item)
         while self.events.count() > 200:
             self.events.takeItem(self.events.count() - 1)
 
@@ -198,13 +205,13 @@ class HistoryPage(QScrollArea):
     def copy(self, entry: Entry, button: QPushButton | None = None) -> None:
         QApplication.clipboard().setText(entry.text)
         if button:
-            self._flash(button, "已複製 ✓")
+            self._flash(button, "已複製")
 
     def copy_last(self) -> None:
         text = self.window.engine.last_text or (self.window.history.entries[0].text if self.window.history.entries else "")
         if text:
             QApplication.clipboard().setText(text)
-            self._flash(self.copy_last_btn, "已複製 ✓")
+            self._flash(self.copy_last_btn, "已複製")
 
     def delete(self, entry: Entry) -> None:
         self.window.history.delete(entry)
