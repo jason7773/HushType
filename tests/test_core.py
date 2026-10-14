@@ -407,7 +407,8 @@ def test_history_retention_and_encryption(tmp_path):
     assert [e.text for e in again.entries] == ["第二段", "只在記憶體"]
 
     import sqlite3
-    with sqlite3.connect(path) as db:
+    from contextlib import closing
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("UPDATE history SET created_at = '2000-01-01T00:00:00' WHERE app = 'line.exe'")
     again = History(path, "7d", crypt=fake)
     assert [e.text for e in again.entries] == ["只在記憶體"]

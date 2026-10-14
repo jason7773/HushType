@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing, contextmanager
 import sqlite3
 import sys
 import threading
@@ -155,11 +156,17 @@ class History:
 
     # ---- 硬碟 ----
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
+        """開啟、提交並確實關閉連線（Windows 上沒關的檔案刪不掉）。"""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.path)
-        db.execute(_SCHEMA)
-        return db
+        try:
+            with db:
+                db.execute(_SCHEMA)
+                yield db
+        finally:
+            db.close()
 
     def _write(self, entry: Entry) -> None:
         with self._connect() as db:
@@ -192,9 +199,9 @@ class History:
 
     def _wipe_disk(self) -> None:
         try:
-            with sqlite3.connect(self.path) as db:
+            with closing(sqlite3.connect(self.path)) as db:
                 db.execute("DROP TABLE IF EXISTS history")
-            with sqlite3.connect(self.path) as db:
+                db.commit()
                 db.execute("VACUUM")  # 讓刪掉的內容不留在檔案裡
         except sqlite3.Error:
             pass
