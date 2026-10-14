@@ -227,3 +227,28 @@ def test_save_config_only_writes_changes_and_round_trips(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "[stt]" not in text and 'key = "f9"' in text
     assert load_config(path) == cfg
+
+
+def test_hotkey_names():
+    from dictate.hotkeys import key_label, mouse_button
+
+    assert mouse_button("mouse:x2") == "x2"
+    assert mouse_button("mouse:left") is None
+    assert mouse_button("right ctrl") is None
+    assert key_label("mouse:middle") == "滑鼠中鍵"
+    assert key_label("right ctrl") == "右 Ctrl"
+    assert key_label("f9") == "F9"
+
+
+def test_engine_routes_mouse_button_events():
+    from dictate.engine import Engine
+
+    calls = []
+    engine = Engine.__new__(Engine)
+    engine._mouse_button = "x2"
+    engine.on_press = lambda: calls.append("down")
+    engine.on_release = lambda: calls.append("up")
+    engine._on_mouse("x1", True)
+    engine._on_mouse("x2", True)
+    engine._on_mouse("x2", False)
+    assert calls == ["down", "up"]

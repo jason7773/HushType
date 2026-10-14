@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import autostart
+from ..hotkeys import key_label
 from ..stats import load_summary
 from . import theme
 from .widgets import Card, StatTile, label
@@ -31,13 +32,6 @@ HINTS = {
     "paused": "快捷鍵暫時停用，按「恢復」繼續",
     "setup": "{error}",
 }
-
-KEY_NAMES = {"right ctrl": "右 Ctrl", "right alt": "右 Alt", "right shift": "右 Shift", "caps lock": "Caps Lock"}
-
-
-def key_label(key: str) -> str:
-    return KEY_NAMES.get(key, key.upper() if len(key) <= 3 else key.title())
-
 
 class _CheckSignals(QObject):
     done = Signal(list)

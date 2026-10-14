@@ -46,7 +46,7 @@ def test_save_settings_stores_key_and_applies(window):
     page = window.settings_page
     page.stt_service.key.setText("gsk_test")
     page.stt_service.key.setModified(True)
-    page.hotkey.setCurrentText("f9")
+    page.set_hotkey("f9")
     page.replacements.setPlainText("拍森 → Python\n錯字=正字")
     page.save()
 
@@ -135,3 +135,34 @@ def test_theme_setting_saved_and_applied(window):
     page.save()
     assert load_config(window.config_path)["ui"]["theme"] == "dark"
     assert theme.current["bg"] == theme.DARK["bg"]
+
+
+def test_mouse_button_hotkey_saved_with_label(window):
+    from dictate.config import load_config
+
+    page = window.settings_page
+    page.set_hotkey("mouse:x2")
+    assert page.hotkey.currentText() == "滑鼠側鍵（前）"
+    page._hotkey_captured("mouse:x1")
+    assert page.hotkey.currentData() == "mouse:x1"
+    page.save()
+    assert load_config(window.config_path)["hotkey"]["key"] == "mouse:x1"
+    assert "滑鼠側鍵（後）" in window.status_page.state_hint.text() or window.engine.state == "setup"
+
+
+def test_wheel_over_dropdown_does_not_change_value(window):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    page = window.settings_page
+    window.show()
+    window.show_page(1)
+    for box in (page.mode, page.cpm):
+        before = box.currentIndex() if hasattr(box, "currentIndex") else box.value()
+        event = QWheelEvent(
+            QPointF(5, 5), QPointF(box.mapToGlobal(QPoint(5, 5))), QPoint(0, 0), QPoint(0, -120),
+            Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False,
+        )
+        QtWidgets.QApplication.sendEvent(box, event)
+        after = box.currentIndex() if hasattr(box, "currentIndex") else box.value()
+        assert after == before

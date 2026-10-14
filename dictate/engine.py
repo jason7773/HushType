@@ -16,6 +16,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
+from . import hotkeys
 from .audio import Recorder, Recording
 from .output import insert_text
 from .pipeline import Pipeline, build_pipeline
@@ -42,6 +43,8 @@ class Engine:
         self.paused = False
         self.busy = 0  # 排隊或處理中的錄音數
         self._hooks: list = []
+        self._mouse: hotkeys.MouseHook | None = None
+        self._bound = False
         self._started_at = datetime.now()
         self.apply_config(config, rebind=False)
         threading.Thread(target=self._worker, daemon=True).start()
@@ -59,7 +62,7 @@ class Engine:
             self.pipeline = build_pipeline(config)
         except (ProviderError, ValueError) as e:
             self.setup_error = str(e)
-        if rebind and self._hooks:
+        if rebind and self._bound:
             self.unbind()
             self.bind()
         self._emit_state()
@@ -117,25 +120,41 @@ class Engine:
     # ---- 快捷鍵 ----
 
     def bind(self) -> None:
-        import keyboard
-
         key = self.config["hotkey"]["key"]
-        self._hooks = [
-            keyboard.on_press_key(key, self.on_press),
-            keyboard.on_release_key(key, self.on_release),
-        ]
+        button = hotkeys.mouse_button(key)
+        if button:
+            hook = hotkeys.MouseHook(self._on_mouse, suppress={button})
+            hook.start()
+            self._mouse, self._mouse_button = hook, button
+        else:
+            import keyboard
+
+            self._hooks = [
+                keyboard.on_press_key(key, self.on_press),
+                keyboard.on_release_key(key, self.on_release),
+            ]
+        self._bound = True
 
     def unbind(self) -> None:
-        import keyboard
+        if self._mouse:
+            self._mouse.stop()
+            self._mouse = None
+        if self._hooks:
+            import keyboard
 
-        for hook in self._hooks:
-            try:
-                keyboard.unhook(hook)
-            except (KeyError, ValueError):
-                pass
-        self._hooks = []
+            for hook in self._hooks:
+                try:
+                    keyboard.unhook(hook)
+                except (KeyError, ValueError):
+                    pass
+            self._hooks = []
+        self._bound = False
 
-    # 以下在 keyboard 的 hook 執行緒中執行，必須快速返回
+    def _on_mouse(self, button: str, down: bool) -> None:
+        if button == self._mouse_button:
+            self.on_press() if down else self.on_release()
+
+    # 以下在快捷鍵 hook 的執行緒中執行，必須快速返回
     def on_press(self, _event=None) -> None:
         if self.paused:
             return

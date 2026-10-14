@@ -5,8 +5,9 @@ from __future__ import annotations
 import copy
 import threading
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -20,12 +21,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import autostart, keystore
+from .. import autostart, hotkeys, keystore
 from ..config import DEFAULT_CLEANUP_PROMPT
 from . import theme
 from .widgets import Card, label
 
-HOTKEYS = ["right ctrl", "right alt", "right shift", "caps lock", "f8", "f9", "f10", "f12", "scroll lock", "pause"]
+HOTKEYS = [
+    "right ctrl", "right alt", "right shift", "caps lock", "f8", "f9", "f10", "f12", "scroll lock", "pause",
+    "mouse:x1", "mouse:x2", "mouse:middle",
+]
 STT_MODELS = ["whisper-large-v3-turbo", "whisper-large-v3"]
 CLEANUP_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
 LANGUAGES = [("中文", "zh"), ("英文", "en"), ("自動偵測", "")]
@@ -50,6 +54,16 @@ def _editable_combo(values: list[str], current: str) -> QComboBox:
     box.setCurrentText(current)
     box.setMinimumWidth(280)
     return box
+
+
+class _WheelGuard(QObject):
+    """滑鼠停在下拉選單或數字欄上滾動時不改值，改成捲動整頁。"""
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Wheel:
+            event.ignore()  # 交給上層的捲動區域
+            return True
+        return False
 
 
 def _form() -> QFormLayout:
@@ -123,6 +137,7 @@ class ServiceForm:
 
 class _HotkeySignal(QObject):
     captured = Signal(str)
+    failed = Signal(str)
 
 
 class SettingsPage(QWidget):
@@ -152,8 +167,10 @@ class SettingsPage(QWidget):
         bar_lay.addWidget(self.save_btn)
         outer.addWidget(bar)
 
+        self._wheel_guard = _WheelGuard(self)
         self._hotkey = _HotkeySignal()
         self._hotkey.captured.connect(self._hotkey_captured)
+        self._hotkey.failed.connect(lambda msg: self.note.setText(f"⚠ 無法錄製按鍵：{msg}"))
         self.load()
 
     # ---- 建立表單 ----
@@ -184,8 +201,13 @@ class SettingsPage(QWidget):
 
         # 快捷鍵與麥克風
         card, form = self._card(lay, "快捷鍵與麥克風")
-        self.hotkey = _editable_combo(HOTKEYS, cfg["hotkey"]["key"])
-        self.capture_btn = QPushButton("按一下要用的鍵")
+        self.hotkey = QComboBox()
+        self.hotkey.setMinimumWidth(280)
+        for key in HOTKEYS:
+            self.hotkey.addItem(hotkeys.key_label(key), key)
+        self.set_hotkey(cfg["hotkey"]["key"])
+        self.capture_btn = QPushButton("錄製按鍵")
+        self.capture_btn.setToolTip("按下後，再按一下鍵盤按鍵或滑鼠中鍵／側鍵；按 Esc 取消")
         self.capture_btn.clicked.connect(self._capture_hotkey)
         row = QHBoxLayout()
         row.addWidget(self.hotkey, 1)
@@ -278,6 +300,10 @@ class SettingsPage(QWidget):
             label("API 金鑰存在 Windows 認證管理員，不會寫進設定檔。", "muted", wrap=True)
         )
 
+        for w in root.findChildren(QComboBox) + root.findChildren(QAbstractSpinBox):
+            w.setFocusPolicy(Qt.StrongFocus)
+            w.installEventFilter(self._wheel_guard)
+
         lay.addStretch(1)
         old = self.scroll.takeWidget()
         if old:
@@ -294,23 +320,27 @@ class SettingsPage(QWidget):
 
     # ---- 錄製快捷鍵 ----
 
+    def set_hotkey(self, key: str) -> None:
+        i = self.hotkey.findData(key)
+        if i < 0:
+            self.hotkey.addItem(hotkeys.key_label(key), key)
+            i = self.hotkey.count() - 1
+        self.hotkey.setCurrentIndex(i)
+
     def _capture_hotkey(self) -> None:
         engine = self.window.engine
-        self.capture_btn.setText("請按一個鍵…")
+        self.capture_btn.setText("請按鍵盤或滑鼠按鍵…")
         self.capture_btn.setEnabled(False)
         was_paused = engine.paused
         engine.set_paused(True)
 
         def wait():
-            import keyboard
-
             name = ""
             try:
-                while True:
-                    event = keyboard.read_event(suppress=False)
-                    if event.event_type == keyboard.KEY_DOWN:
-                        name = event.name or ""
-                        break
+                name = hotkeys.capture()
+            except Exception as e:
+                name = ""
+                self._hotkey.failed.emit(str(e))
             finally:
                 engine.set_paused(was_paused)
                 self._hotkey.captured.emit(name)
@@ -319,8 +349,9 @@ class SettingsPage(QWidget):
 
     def _hotkey_captured(self, name: str) -> None:
         if name:
-            self.hotkey.setCurrentText(name.lower())
-        self.capture_btn.setText("按一下要用的鍵")
+            self.set_hotkey(name)
+            self.note.setText(f"快捷鍵改成「{hotkeys.key_label(name)}」，按「儲存」後生效")
+        self.capture_btn.setText("錄製按鍵")
         self.capture_btn.setEnabled(True)
 
     # ---- 儲存 ----
@@ -330,7 +361,7 @@ class SettingsPage(QWidget):
         cfg["feedback"]["beep"] = self.beep.isChecked()
         cfg["ui"]["overlay"] = self.overlay.isChecked()
         cfg["ui"]["theme"] = self.theme.currentData()
-        cfg["hotkey"]["key"] = self.hotkey.currentText().strip().lower() or "right ctrl"
+        cfg["hotkey"]["key"] = self.hotkey.currentData() or "right ctrl"
         cfg["hotkey"]["mode"] = self.mode.currentData()
         cfg["audio"]["device"] = self.mic.currentData()
 
