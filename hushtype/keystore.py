@@ -6,14 +6,23 @@ import logging
 
 log = logging.getLogger(__name__)
 
-SERVICE = "dictate"
+SERVICE = "Hushtype"
+LEGACY_SERVICE = "dictate"  # 改名前的版本存在這裡
 
 
 def get_secret(name: str) -> str | None:
     try:
         import keyring
 
-        return keyring.get_password(SERVICE, name)
+        value = keyring.get_password(SERVICE, name)
+        if value is None:
+            value = keyring.get_password(LEGACY_SERVICE, name)
+            if value:  # 搬到新名稱底下
+                try:
+                    keyring.set_password(SERVICE, name, value)
+                except Exception:
+                    pass
+        return value
     except Exception as e:  # 沒有安裝 keyring 或系統沒有可用的儲存區
         log.debug("無法讀取金鑰 %s：%s", name, e)
         return None

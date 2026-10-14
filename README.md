@@ -1,31 +1,39 @@
-# dictate
+<p align="center"><img src="docs/images/logo.png" width="96" alt="Hushtype"></p>
+
+# Hushtype 悄聲
 
 **重視隱私的 Windows 語音輸入工具。** 在任何程式裡按住快捷鍵說話，放開後自動辨識、去掉贅字、加上標點，貼到游標所在的位置。錄音和文字只送到**你自己選、自己申請金鑰**的服務，也可以完全在自己電腦上執行。
 
 *A privacy-first voice dictation app for Windows: hold a hotkey, speak, release, and cleaned-up text is pasted where your cursor is. Audio only goes to the speech/LLM service you choose with your own API key (Groq, OpenAI, Gemini, or a local OpenAI-compatible server). UI is in Traditional Chinese.*
 
-[![build](https://github.com/jason7773/dictate/actions/workflows/build.yml/badge.svg)](https://github.com/jason7773/dictate/actions/workflows/build.yml)
-[![release](https://img.shields.io/github/v/release/jason7773/dictate)](https://github.com/jason7773/dictate/releases/latest)
-[![license](https://img.shields.io/github/license/jason7773/dictate)](LICENSE)
+[![build](https://github.com/jason7773/hushtype/actions/workflows/build.yml/badge.svg)](https://github.com/jason7773/hushtype/actions/workflows/build.yml)
+[![release](https://img.shields.io/github/v/release/jason7773/hushtype)](https://github.com/jason7773/hushtype/releases/latest)
+[![license](https://img.shields.io/github/license/jason7773/hushtype)](LICENSE)
 
 <p align="center">
-  <img src="docs/images/status-light.png" width="420" alt="狀態頁">
+  <img src="docs/images/home-light.png" width="420" alt="首頁">
+  <img src="docs/images/history-light.png" width="420" alt="歷史紀錄">
+  <br>
+  <img src="docs/images/dictionary-dark.png" width="420" alt="字典（深色模式）">
   <img src="docs/images/stats-dark.png" width="420" alt="使用統計（深色模式）">
 </p>
 
 ## 為什麼做這個
 
-市面上的 AI 語音輸入工具很好用，但錄音上傳到哪裡、存多久、會不會拿去訓練，使用者完全無法控制。dictate 只做一件事：把你的聲音送到**你指定的**服務，換回整理好的文字，其他什麼都不送。
+市面上的 AI 語音輸入工具很好用，但錄音上傳到哪裡、存多久、會不會拿去訓練，使用者完全無法控制。Hushtype 只做一件事：把你的聲音送到**你指定的**服務，換回整理好的文字，其他什麼都不送。
 
 ## 功能
 
 - **按住說話，放開就貼上**：任何程式都能用；也可以改成「按一下開始、再按一下結束」
 - **AI 整理**：去除「嗯、那個、就是」等贅字，處理說錯改口，加全形標點，長內容自動分段與條列
-- **繁體中文與台灣用語**，英文單字與專有名詞保留原文；可設定專有名詞與固定替換
+- **繁體中文與台灣用語**，英文單字與專有名詞保留原文
+- **字典**：加入人名、術語讓辨識寫對，或設定固定替換（例如 `拍森 → Python`）
 - **錄音小視窗**：錄音時螢幕下方出現五條跟著聲音跳動的音波，處理時顯示「轉譯中」，貼上後消失
 - **找不到輸入框時不會弄丟文字**：螢幕下方會跳出文字與「複製」按鈕；辨識失敗時錄音會保留，可以按「重試」
 - **快捷鍵可用鍵盤或滑鼠中鍵／側鍵**，而且會被攔下，不會同時觸發其他程式（例如 F12 不會打開開發者工具）
-- **使用統計**：每天、每月說了多久、輸出多少字、估計省下多少時間（只記錄數字，不含內容）
+- **首頁洞察**：口述字數、節省時間、口述速度，以及像 GitHub 一樣的活躍日曆與連續天數
+- **歷史紀錄**：可隨時複製或刪除之前的辨識結果。預設只保留到關閉程式；想保留 1 天、1 週、1 個月或永久時，內容會以 Windows DPAPI 加密存在本機
+- **使用統計**：每天、每月說了多久、輸出多少字、在哪些程式用得最多（只記錄數字與程式名稱，不含內容）
 - **常駐系統匣**、開機自動啟動、淺色／深色模式
 - **程式內更新**：有新版時按「更新並重新啟動」即可，設定都會保留
 
@@ -39,10 +47,10 @@
 
 ## 安裝
 
-1. 到 [Releases](https://github.com/jason7773/dictate/releases/latest) 下載 `dictate-setup-x.y.z.exe`
+1. 到 [Releases](https://github.com/jason7773/hushtype/releases/latest) 下載 `Hushtype-setup-x.y.z.exe`
 2. 執行安裝檔（不需要系統管理員權限）。Windows 可能顯示「Windows 已保護您的電腦」，按「其他資訊 → 仍要執行」
-3. 打開 dictate，到「設定」選擇服務、貼上 API 金鑰，按「儲存」
-4. 到「狀態」頁按「測試連線」，看到 ✓ 就可以開始用了
+3. 打開 Hushtype，到「設定」選擇服務、貼上 API 金鑰，按「儲存」
+4. 到「首頁」看「系統檢查」，全部是 ✓ 就可以開始用了
 
 系統需求：Windows 10 或 11（64 位元）、麥克風、可連網（使用雲端服務時）。
 
@@ -62,19 +70,21 @@
 ## 隱私
 
 - 錄音只放在記憶體，不寫入硬碟；辨識失敗時保留最後一段，供「重試」使用，關閉程式即清除
-- 辨識出的文字預設不顯示也不保存；「複製上一次結果」用的文字只在記憶體裡
-- 使用統計只記錄時間與字數，存在 `%APPDATA%\dictate\usage.db`
+- 辨識出的文字預設只在記憶體，關閉程式即清除；只有在「歷史紀錄」頁自己選了保留期限才會加密寫入 `%APPDATA%\Hushtype\history.db`
+- 使用統計只記錄時間、字數與程式名稱，存在 `%APPDATA%\Hushtype\usage.db`
 - 除了你選的服務，程式只會連到 GitHub 檢查新版（可在設定關閉）
 
 詳見 [SECURITY.md](SECURITY.md)。
 
 ## 常見問題
 
-**按快捷鍵沒反應？** 到「狀態」頁看「系統檢查」。如果其他程式是以系統管理員身分執行，一般權限的 dictate 收不到在那個視窗裡按的快捷鍵，這是 Windows 的限制。
+**按快捷鍵沒反應？** 到「首頁」看「系統檢查」。如果其他程式是以系統管理員身分執行，一般權限的 Hushtype 收不到在那個視窗裡按的快捷鍵，這是 Windows 的限制。
 
-**文字沒有貼上？** 游標要在可以打字的地方。找不到輸入框時，螢幕下方會出現「複製」框；系統匣選單也有「複製上一段文字」。
+**文字沒有貼上？** 游標要在可以打字的地方。找不到輸入框時，螢幕下方會出現「複製」框；「歷史紀錄」頁與系統匣選單也能複製上一次的結果。
 
-**有些字常常辨識錯？** 到「設定 → 詞彙」加入專有名詞，或設定固定替換（例如 `拍森 → Python`）。
+**有些字常常辨識錯？** 到「字典」加入專有名詞，或設定固定替換（例如 `拍森 → Python`）。
+
+**從舊版 dictate 升級？** 直接安裝新版即可，設定、金鑰、統計與開機啟動都會自動搬過來。
 
 **想完全離線？** 在「設定」把服務改成「其他 OpenAI 相容服務」，填本機 whisper.cpp / llama.cpp server 的網址即可。
 
@@ -85,8 +95,8 @@
 ```
 py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt pytest
-.venv\Scripts\pythonw dictate.pyw            # 開啟應用程式
-.venv\Scripts\python -m dictate --console    # 在 terminal 執行（除錯用）
+.venv\Scripts\pythonw hushtype.pyw            # 開啟應用程式
+.venv\Scripts\python -m hushtype --console    # 在 terminal 執行（除錯用）
 .venv\Scripts\python -m pytest
 ```
 
@@ -95,7 +105,7 @@ py -3.12 -m venv .venv
 ### 架構
 
 ```
-dictate/
+hushtype/
   engine.py       快捷鍵、錄音、處理、貼上；以事件回報狀態（介面與主控台共用）
   pipeline.py     辨識 → 繁體 → LLM 整理 → 替換（與平台無關）
   providers/      服務介面、註冊表與各家實作
@@ -108,13 +118,14 @@ dictate/
   autostart.py    開機自動啟動
   updater.py      檢查、下載、安裝新版
   stats.py        本機使用紀錄（SQLite）與彙總
-  gui/            主視窗、系統匣、錄音小視窗、複製框、狀態／設定／統計頁
+  history.py      歷史紀錄（記憶體或 DPAPI 加密的 SQLite）
+  gui/            主視窗、系統匣、錄音小視窗、複製框、首頁／歷史／字典／統計／設定頁
 packaging/        PyInstaller + Inno Setup 打包、簽章腳本
 ```
 
 ### 新增其他服務
 
-OpenAI 相容的服務在設定頁選「其他 OpenAI 相容服務」並填網址即可。其他服務在 `dictate/providers/` 新增模組：
+OpenAI 相容的服務在設定頁選「其他 OpenAI 相容服務」並填網址即可。其他服務在 `hushtype/providers/` 新增模組：
 
 ```python
 from .base import SpeechToText, register_stt
@@ -125,11 +136,11 @@ class AzureSTT(SpeechToText):
     def transcribe(self, wav: bytes, *, prompt: str | None = None) -> str: ...
 ```
 
-再到 `dictate/providers/__init__.py` 匯入它。文字整理服務同理，用 `TextCleaner` 與 `@register_cleaner`。
+再到 `hushtype/providers/__init__.py` 匯入它。文字整理服務同理，用 `TextCleaner` 與 `@register_cleaner`。
 
 ### 發佈新版
 
-把 `dictate/__init__.py` 的 `__version__` 改成新版本號並推到 `main`，GitHub Actions 會測試、打包並建立 `v版本號` 的 Release，已安裝的程式就會提示更新。版本號沒變的 commit 也會打包，安裝檔放在 Actions 的 Artifacts。
+把 `hushtype/__init__.py` 的 `__version__` 改成新版本號並推到 `main`，GitHub Actions 會測試、打包並建立 `v版本號` 的 Release，已安裝的程式就會提示更新。版本號沒變的 commit 也會打包，安裝檔放在 Actions 的 Artifacts。
 
 ### 程式碼簽章（維護者）
 

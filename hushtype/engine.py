@@ -244,14 +244,15 @@ class Engine:
             self._emit("skipped", reason="沒有辨識到內容")
             return
         self.last_text = text
+        app = focus.foreground_app()
         out = self.config["output"]
         has_field = focus.has_text_focus() if out.get("show_unplaced", True) else None
         insert_text(text, method=out["method"], restore_clipboard=out["restore_clipboard"])
         if has_field is False:
             self._emit("unplaced", text=text)
         latency = time.monotonic() - t0
-        self._record(started_at, rec, text, t0, "ok")
-        data = {"chars": len(text), "seconds": rec.seconds, "latency": latency, "output": text}
+        self._record(started_at, rec, text, t0, "ok", app)
+        data = {"chars": len(text), "seconds": rec.seconds, "latency": latency, "output": text, "app": app}
         if self.config["privacy"]["log_text"]:
             data["text"] = text
         self._emit("result", **data)
@@ -267,7 +268,7 @@ class Engine:
         self._emit_state()
         return True
 
-    def _record(self, started_at: datetime, rec: Recording, text: str, t0: float, status: str) -> None:
+    def _record(self, started_at: datetime, rec: Recording, text: str, t0: float, status: str, app: str = "") -> None:
         if self.usage is None:
             return
         try:
@@ -277,6 +278,7 @@ class Engine:
                 chars=len(text),
                 latency_seconds=time.monotonic() - t0,
                 status=status,
+                app=app,
             )
         except Exception as e:  # 統計失敗不影響輸入
             log.warning("無法寫入使用紀錄：%s", e)

@@ -3,7 +3,7 @@
 新增一個服務（例如 Azure、OpenAI、本機 whisper.cpp）只要：
 1. 寫一個類別，實作 SpeechToText.transcribe 或 TextCleaner.clean
 2. 用 @register_stt("名稱") 或 @register_cleaner("名稱") 註冊
-3. 在 dictate/providers/__init__.py 匯入該模組
+3. 在 hushtype/providers/__init__.py 匯入該模組
 4. config.toml 裡把 provider 改成那個名稱
 """
 

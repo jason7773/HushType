@@ -33,7 +33,7 @@ def _send_xbutton(which: int) -> None:
 
 
 def test_mouse_hook_sees_side_button():
-    from dictate.hotkeys import MouseHook
+    from hushtype.hotkeys import MouseHook
 
     got = []
     done = threading.Event()
@@ -56,7 +56,7 @@ def test_mouse_hook_sees_side_button():
 
 
 def test_ui_automation_loads():
-    from dictate import focus
+    from hushtype import focus
 
     uia, mod = focus._automation()
     assert uia is not None and hasattr(mod, "IUIAutomationValuePattern")

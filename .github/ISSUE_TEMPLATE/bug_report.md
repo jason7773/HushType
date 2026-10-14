@@ -15,7 +15,7 @@ labels: bug
 
 
 **環境**
-- dictate 版本（左下角）：
+- Hushtype 版本（左下角）：
 - Windows 版本：
 - 語音辨識／文字整理服務：
 - 快捷鍵：

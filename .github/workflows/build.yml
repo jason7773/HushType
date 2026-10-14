@@ -1,6 +1,6 @@
 name: build
 
-# 推到 main 時，若 dictate/__init__.py 的版本號還沒有對應的 Release，就自動建立 Release；
+# 推到 main 時，若 hushtype/__init__.py 的版本號還沒有對應的 Release，就自動建立 Release；
 # 否則只打包成 Actions artifact。
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $v = (Select-String -Path dictate/__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value
+          $v = (Select-String -Path hushtype/__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value
           $release = "false"
           if ($env:GITHUB_EVENT_NAME -eq "push") {
             gh release view "v$v" --repo $env:GITHUB_REPOSITORY *> $null
@@ -56,8 +56,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dictate-setup-${{ steps.version.outputs.value }}
-          path: dist/dictate-setup-*.exe
+          name: Hushtype-setup-${{ steps.version.outputs.value }}
+          path: dist/Hushtype-setup-*.exe
 
       - name: Release
         if: steps.version.outputs.release == 'true'
@@ -65,6 +65,6 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.value }}
           target_commitish: ${{ github.sha }}
-          name: dictate ${{ steps.version.outputs.value }}
-          files: dist/dictate-setup-*.exe
+          name: Hushtype ${{ steps.version.outputs.value }}
+          files: dist/*-setup-*.exe
           generate_release_notes: true

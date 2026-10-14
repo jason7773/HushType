@@ -1,4 +1,4 @@
-﻿# 打包 dictate：PyInstaller → 簽章 → Inno Setup 安裝檔 → 簽章
+﻿# 打包 Hushtype：PyInstaller → 簽章 → Inno Setup 安裝檔 → 簽章
 # 用法：pwsh packaging/build.ps1 -Version 0.2.0
 # 有設定環境變數 CERT_PFX_BASE64 與 CERT_PASSWORD 時才會簽章。
 param([string]$Version = "0.0.0")
@@ -26,29 +26,32 @@ function Sign-File([string]$Path) {
 }
 
 # 寫入版本號
-$init = "dictate\__init__.py"
+$init = "hushtype\__init__.py"
 (Get-Content $init -Raw) -replace '__version__ = ".*"', "__version__ = `"$Version`"" |
     Set-Content $init -NoNewline -Encoding utf8
 
-# 1. 先產生 UI Automation 的 COM 介面（判斷有沒有輸入框用），再打包成 dist\dictate\dictate.exe
+# 1. 先產生 UI Automation 的 COM 介面（判斷有沒有輸入框用），再打包成 dist\Hushtype\Hushtype.exe
 python -c "import comtypes.client; comtypes.client.GetModule('UIAutomationCore.dll')"
 if ($LASTEXITCODE) { throw "無法產生 UI Automation 介面" }
 python -m PyInstaller --noconfirm --clean --windowed `
-    --name dictate `
-    --icon assets\dictate.ico `
+    --name Hushtype `
+    --icon assets\hushtype.ico `
     --collect-data opencc `
     --hidden-import keyring.backends.Windows `
     --collect-submodules comtypes.gen `
     --distpath dist --workpath build `
-    dictate.pyw
+    hushtype.pyw
 if ($LASTEXITCODE) { throw "PyInstaller 失敗" }
-Sign-File "dist\dictate\dictate.exe"
+Sign-File "dist\Hushtype\Hushtype.exe"
 
 # 2. 安裝檔
 $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
     choco install innosetup -y --no-progress | Out-Host
 }
-& $iscc "/DMyAppVersion=$Version" "packaging\dictate.iss"
+& $iscc "/DMyAppVersion=$Version" "packaging\hushtype.iss"
 if ($LASTEXITCODE) { throw "Inno Setup 失敗" }
-Sign-File "dist\dictate-setup-$Version.exe"
+Sign-File "dist\Hushtype-setup-$Version.exe"
+
+# 改名前的版本（dictate 0.5.x）只認得 dictate-setup-*.exe，多放一份同樣的安裝檔讓它們也能自動更新
+Copy-Item "dist\Hushtype-setup-$Version.exe" "dist\dictate-setup-$Version.exe"

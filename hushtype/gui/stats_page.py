@@ -93,6 +93,13 @@ class StatsPage(QScrollArea):
         hourly.body.addWidget(self.hourly_chart)
         lay.addWidget(hourly)
 
+        apps = Card("在哪些程式使用（次數）")
+        self.apps_chart = BarChart(200)
+        apps.body.addWidget(self.apps_chart)
+        self.apps_empty = label("還沒有資料。新版開始記錄你在哪個程式使用語音輸入（只記程式名稱）。", "muted", wrap=True)
+        apps.body.addWidget(self.apps_empty)
+        lay.addWidget(apps)
+
         monthly = Card("每月統計")
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["月份", "次數", "說話（分鐘）", "字數", "省下（分鐘）", "平均回應（秒）", "失敗"])
@@ -128,6 +135,16 @@ class StatsPage(QScrollArea):
             label=lambda d: str(d["h"]),
             tip=lambda d: f"{d['h']}:00–{d['h']}:59\n{d['c']:,} 次",
             label_width=30,
+        )
+        top_apps = [a for a in s["apps"] if a["app"] != "未知"][:8]
+        self.apps_empty.setVisible(not top_apps)
+        self.apps_chart.setVisible(bool(top_apps))
+        self.apps_chart.set_data(
+            top_apps,
+            value=lambda d: d["count"],
+            label=lambda d: d["app"],
+            tip=lambda d: f"{d['app']}\n{d['count']:,} 次・{d['chars']:,} 字・{d['minutes']:.1f} 分鐘",
+            label_width=70,
         )
         self.table.setRowCount(len(s["monthly"]))
         for r, row in enumerate(s["monthly"]):

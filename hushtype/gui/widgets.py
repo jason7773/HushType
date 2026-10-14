@@ -5,9 +5,11 @@ from __future__ import annotations
 import math
 from typing import Callable
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from datetime import date, timedelta
+
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QFrame, QLabel, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QLayout, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from . import theme
 
@@ -173,3 +175,145 @@ class BarChart(QWidget):
     def leaveEvent(self, _event) -> None:
         self.hover = -1
         self.update()
+
+
+class Heatmap(QWidget):
+    """像 GitHub 那樣的每日活躍方格：一欄一週，一列一個星期幾，顏色越深用得越多。"""
+
+    CELL, GAP, LEFT, BOTTOM = 13, 4, 22, 20
+    DAYS = ["日", "一", "二", "三", "四", "五", "六"]
+
+    def __init__(self):
+        super().__init__()
+        self.counts: dict[str, int] = {}
+        self.today = date.today()
+        self.setMouseTracking(True)
+        self.setMinimumHeight(self.GAP + 7 * (self.CELL + self.GAP) + self.BOTTOM)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def sizeHint(self) -> QSize:
+        return QSize(600, self.minimumHeight())
+
+    def set_counts(self, counts: dict[str, int], today: date | None = None) -> None:
+        self.counts, self.today = counts, today or date.today()
+        self.update()
+
+    def _weeks(self) -> int:
+        return max(4, (self.width() - self.LEFT) // (self.CELL + self.GAP))
+
+    def _start(self) -> date:
+        # 最後一欄是本週（週日開始）
+        last_sunday = self.today - timedelta(days=(self.today.weekday() + 1) % 7)
+        return last_sunday - timedelta(weeks=self._weeks() - 1)
+
+    def _cell(self, week: int, dow: int) -> QRectF:
+        step = self.CELL + self.GAP
+        return QRectF(self.LEFT + week * step, dow * step, self.CELL, self.CELL)
+
+    def _level(self, n: int, top: int) -> int:
+        if n <= 0:
+            return 0
+        return min(4, 1 + int(3 * n / max(top, 1)))
+
+    def paintEvent(self, _event) -> None:
+        c = theme.current
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        font = p.font()
+        font.setPixelSize(10)
+        p.setFont(font)
+        start, weeks = self._start(), self._weeks()
+        top = max(self.counts.values(), default=1)
+        accent = QColor(c["accent"])
+        empty = QColor(c["surface_alt"])
+        p.setPen(QColor(c["text_muted"]))
+        for dow in (1, 3, 5):
+            p.drawText(QRectF(0, self._cell(0, dow).top(), self.LEFT - 6, self.CELL), Qt.AlignRight | Qt.AlignVCenter, self.DAYS[dow])
+        last_month = None
+        for w in range(weeks):
+            for dow in range(7):
+                d = start + timedelta(days=w * 7 + dow)
+                if d > self.today:
+                    continue
+                level = self._level(self.counts.get(d.isoformat(), 0), top)
+                if level:
+                    col = QColor(accent)
+                    col.setAlphaF((0.25, 0.45, 0.7, 1.0)[level - 1])
+                else:
+                    col = empty
+                p.setPen(Qt.NoPen)
+                p.setBrush(col)
+                p.drawRoundedRect(self._cell(w, dow), 3, 3)
+            first = start + timedelta(days=w * 7)
+            if first.month != last_month and first.day <= 7:
+                p.setPen(QColor(c["text_muted"]))
+                p.drawText(QRectF(self._cell(w, 0).left(), self.height() - self.BOTTOM + 4, 50, 14), Qt.AlignLeft, f"{first.month} 月")
+                last_month = first.month
+        p.end()
+
+    def mouseMoveEvent(self, event) -> None:
+        step = self.CELL + self.GAP
+        w = int((event.position().x() - self.LEFT) // step)
+        dow = int(event.position().y() // step)
+        if 0 <= w < self._weeks() and 0 <= dow < 7:
+            d = self._start() + timedelta(days=w * 7 + dow)
+            if d <= self.today:
+                n = self.counts.get(d.isoformat(), 0)
+                QToolTip.showText(event.globalPosition().toPoint(), f"{d:%Y/%m/%d}：{n} 次" if n else f"{d:%Y/%m/%d}：沒有使用", self)
+                return
+        QToolTip.hideText()
+
+
+class FlowLayout(QLayout):
+    """自動換行的排列，用在字典的詞彙標籤。"""
+
+    def __init__(self, parent=None, spacing: int = 8):
+        super().__init__(parent)
+        self._items = []
+        self._spacing = spacing
+
+    def addItem(self, item) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, i):
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientations()
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._arrange(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect) -> None:
+        super().setGeometry(rect)
+        self._arrange(rect, apply=True)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _arrange(self, rect, *, apply: bool) -> int:
+        x, y, line = rect.x(), rect.y(), 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x + hint.width() > rect.right() and line > 0:
+                x, y, line = rect.x(), y + line + self._spacing, 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._spacing
+            line = max(line, hint.height())
+        return y + line - rect.y()

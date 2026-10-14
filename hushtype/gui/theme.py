@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QLinearGradient, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QApplication
 
 LIGHT = {
@@ -69,7 +69,7 @@ def is_dark() -> bool:
 
 
 def _asset_dir() -> Path:
-    d = Path(tempfile.gettempdir()) / "dictate-ui"
+    d = Path(tempfile.gettempdir()) / "hushtype-ui"
     d.mkdir(exist_ok=True)
     return d
 
@@ -128,7 +128,23 @@ def _stylesheet(c: dict) -> str:
     #muted {{ color: {c['text_muted']}; font-size: 12px; }}
     #secondary {{ color: {c['text_secondary']}; }}
     #big {{ font-size: 26px; font-weight: 600; }}
-    #stateTitle {{ font-size: 24px; font-weight: 700; }}
+    #stateTitle {{ font-size: 20px; font-weight: 700; }}
+    #hero {{ font-size: 32px; font-weight: 800; }}
+    #h1small {{ font-size: 20px; font-weight: 700; color: {c['text_secondary']}; margin-top: 6px; }}
+    #bigger {{ font-size: 28px; font-weight: 700; }}
+    #keyCard {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 14px; min-width: 150px; }}
+    #keyChip {{ background: {c['surface_alt']}; border: 1px solid {c['border']}; border-radius: 6px; padding: 3px 10px; font-weight: 700; }}
+    #entry {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 12px; }}
+    #entry:hover {{ border-color: {c['text_muted']}; }}
+    #entryText {{ line-height: 150%; }}
+    #divider {{ background: {c['border']}; border: none; }}
+    #chip {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 10px; }}
+    #chip:hover {{ border-color: {c['text_muted']}; }}
+    #chipMark {{ color: {c['accent']}; font-size: 11px; }}
+    QPushButton#chipRemove {{ background: transparent; border: none; padding: 0 6px; color: {c['text_muted']}; }}
+    QPushButton#chipRemove:hover {{ color: {c['bad']}; }}
+    QPushButton#ghost {{ background: transparent; border: none; padding: 4px 10px; color: {c['text_secondary']}; }}
+    QPushButton#ghost:hover {{ background: {c['surface_alt']}; color: {c['text']}; }}
     #good {{ color: {c['good']}; }}
     #bad {{ color: {c['bad']}; }}
     #warn {{ color: {c['warn']}; font-size: 12px; }}
@@ -240,6 +256,26 @@ def nav_icon(kind: str, color: str, size: int = 40) -> QIcon:
             p.setBrush(QColor(color))
             p.drawEllipse(QPointF(knob * s, y * s), 1.8 * s, 1.8 * s)
             p.setBrush(Qt.NoBrush)
+    elif kind == "home":
+        path = QPainterPath()
+        path.moveTo(3.5 * s, 9 * s)
+        path.lineTo(10 * s, 3.5 * s)
+        path.lineTo(16.5 * s, 9 * s)
+        path.lineTo(16.5 * s, 16.5 * s)
+        path.lineTo(3.5 * s, 16.5 * s)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.drawLine(QPointF(8 * s, 16.5 * s), QPointF(8 * s, 12 * s))
+        p.drawLine(QPointF(8 * s, 12 * s), QPointF(12 * s, 12 * s))
+        p.drawLine(QPointF(12 * s, 12 * s), QPointF(12 * s, 16.5 * s))
+    elif kind == "history":
+        p.drawEllipse(QPointF(10 * s, 10 * s), 7 * s, 7 * s)
+        p.drawLine(QPointF(10 * s, 10 * s), QPointF(10 * s, 6 * s))
+        p.drawLine(QPointF(10 * s, 10 * s), QPointF(13 * s, 11.5 * s))
+    elif kind == "dictionary":
+        p.drawRoundedRect(QRectF(4 * s, 3 * s, 12 * s, 14 * s), 2 * s, 2 * s)
+        p.drawLine(QPointF(4 * s, 13.5 * s), QPointF(16 * s, 13.5 * s))
+        p.drawLine(QPointF(7.5 * s, 6.5 * s), QPointF(12.5 * s, 6.5 * s))
     elif kind == "stats":
         for x, top in ((4.5, 10), (10, 4), (15.5, 7.5)):
             p.drawLine(QPointF(x * s, 16.5 * s), QPointF(x * s, top * s))
@@ -247,32 +283,58 @@ def nav_icon(kind: str, color: str, size: int = 40) -> QIcon:
     return QIcon(pm)
 
 
-def make_icon_pixmap(color: str, size: int = 64) -> QPixmap:
-    """圓角方塊底色 + 白色麥克風。"""
+BRAND = ("#6d5dfc", "#2f80ed")  # Logo 漸層：紫 → 藍
+
+
+def _draw_glyph(p: QPainter, s: float, color: QColor, small: bool = False) -> None:
+    """Hushtype 標誌：聲波 + 文字游標，表示「說話變成文字」。小尺寸時減少線條，避免糊在一起。"""
+    p.setPen(Qt.NoPen)
+    p.setBrush(color)
+    if small:
+        bars, bar_w, cursor_x, cursor_w, serif = ((13, 16), (22.5, 32), (32, 20)), 7.0, 47, 5.5, 6
+    else:
+        bars, bar_w, cursor_x, cursor_w, serif = ((12, 12), (20, 22), (28, 30), (36, 17)), 5.2, 47.5, 3.6, 4.5
+    for x, h in bars:
+        p.drawRoundedRect(QRectF(x * s, (32 - h / 2) * s, bar_w * s, h * s), bar_w * s / 2, bar_w * s / 2)
+    pen = QPen(color, cursor_w * s, Qt.SolidLine, Qt.RoundCap)
+    p.setPen(pen)
+    p.drawLine(QPointF(cursor_x * s, 16 * s), QPointF(cursor_x * s, 48 * s))
+    p.drawLine(QPointF((cursor_x - serif) * s, 16 * s), QPointF((cursor_x + serif) * s, 16 * s))
+    p.drawLine(QPointF((cursor_x - serif) * s, 48 * s), QPointF((cursor_x + serif) * s, 48 * s))
+
+
+def make_icon_pixmap(color: str | None = None, size: int = 64) -> QPixmap:
+    """圓角方塊底色 + 白色標誌。color 為 None 時用品牌漸層（Logo），否則用狀態顏色（系統匣）。"""
     pm = QPixmap(size, size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
     s = size / 64
     p.setPen(Qt.NoPen)
-    p.setBrush(QColor(color))
-    p.drawRoundedRect(QRectF(2 * s, 2 * s, 60 * s, 60 * s), 14 * s, 14 * s)
-    p.setBrush(QColor("#ffffff"))
-    p.drawRoundedRect(QRectF(24 * s, 12 * s, 16 * s, 26 * s), 8 * s, 8 * s)
-    pen = QPen(QColor("#ffffff"), 4 * s, Qt.SolidLine, Qt.RoundCap)
-    p.setPen(pen)
-    p.setBrush(Qt.NoBrush)
-    arc = QPainterPath()
-    arc.moveTo(QPointF(17 * s, 30 * s))
-    arc.cubicTo(QPointF(17 * s, 48 * s), QPointF(47 * s, 48 * s), QPointF(47 * s, 30 * s))
-    p.drawPath(arc)
-    p.drawLine(QPointF(32 * s, 44 * s), QPointF(32 * s, 52 * s))
+    if color is None:
+        grad = QLinearGradient(0, 0, size, size)
+        grad.setColorAt(0, QColor(BRAND[0]))
+        grad.setColorAt(1, QColor(BRAND[1]))
+        p.setBrush(grad)
+    else:
+        p.setBrush(QColor(color))
+    p.drawRoundedRect(QRectF(2 * s, 2 * s, 60 * s, 60 * s), 15 * s, 15 * s)
+    _draw_glyph(p, s, QColor("#ffffff"), small=size <= 24)
     p.end()
     return pm
 
 
-def make_icon(color: str) -> QIcon:
+def make_icon(color: str | None = None) -> QIcon:
     icon = QIcon()
     for size in (16, 20, 24, 32, 48, 64, 128, 256):
         icon.addPixmap(make_icon_pixmap(color, size))
     return icon
+
+
+def state_icon(state: str) -> QIcon:
+    """系統匣圖示：待命時用品牌漸層，其他狀態用狀態顏色。"""
+    return make_icon(None if state == "idle" else STATES[state][1])
+
+
+def state_pixmap(state: str, size: int) -> QPixmap:
+    return make_icon_pixmap(None if state == "idle" else STATES[state][1], size)

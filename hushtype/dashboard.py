@@ -10,7 +10,7 @@ _TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dictate 使用統計</title>
+<title>Hushtype 使用統計</title>
 <style>
 :root {
   color-scheme: light;

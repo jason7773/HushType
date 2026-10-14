@@ -19,9 +19,13 @@ import requests
 
 from . import __version__
 
-REPO = "jason7773/dictate"
-LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
-INSTALLER = re.compile(r"^dictate-setup-([\d.]+)\.exe$")
+REPO = "jason7773/hushtype"
+LEGACY_REPO = "jason7773/dictate"  # 改名前的 repo；GitHub 會自動轉址
+
+
+def _latest_url(repo: str) -> str:
+    return f"https://api.github.com/repos/{repo}/releases/latest"
+INSTALLER = re.compile(r"^Hushtype-setup-([\d.]+)\.exe$", re.IGNORECASE)
 
 
 class UpdateError(RuntimeError):
@@ -54,7 +58,10 @@ def can_self_update() -> bool:
 
 def latest_release(timeout: float = 10) -> Release:
     try:
-        resp = requests.get(LATEST_URL, headers={"Accept": "application/vnd.github+json"}, timeout=timeout)
+        for repo in (REPO, LEGACY_REPO):
+            resp = requests.get(_latest_url(repo), headers={"Accept": "application/vnd.github+json"}, timeout=timeout)
+            if resp.status_code != 404:
+                break
     except requests.RequestException as e:
         raise UpdateError(f"無法連線到 GitHub：{e}") from e
     if resp.status_code == 404:
@@ -77,7 +84,7 @@ def latest_release(timeout: float = 10) -> Release:
 
 def download(release: Release, progress: Callable[[int, int], None] | None = None) -> Path:
     """下載到暫存資料夾並核對雜湊，回傳安裝檔路徑。"""
-    target = Path(tempfile.gettempdir()) / f"dictate-setup-{release.version}.exe"
+    target = Path(tempfile.gettempdir()) / f"Hushtype-setup-{release.version}.exe"
     sha = hashlib.sha256()
     done = 0
     try:
@@ -103,7 +110,7 @@ def download(release: Release, progress: Callable[[int, int], None] | None = Non
 
 
 def launch_installer(path: Path) -> None:
-    """安靜安裝；安裝程式會先關掉 dictate，裝完再自動開啟。呼叫後程式應立即結束。"""
+    """安靜安裝；安裝程式會先關掉程式，裝完再自動開啟。呼叫後程式應立即結束。"""
     flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     subprocess.Popen(
         [str(path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/RELAUNCH"],

@@ -58,6 +58,11 @@ DEFAULTS: dict = {
     "privacy": {
         "log_text": False,  # 是否在主控台印出辨識結果
     },
+    "history": {
+        # 歷史紀錄保留多久：session（只在記憶體，關閉程式就清除）、1d、7d、30d、forever
+        # 寫入硬碟時每筆都用 Windows DPAPI 加密，只有同一個 Windows 帳號能解開
+        "retention": "session",
+    },
     "feedback": {
         "beep": True,
     },
@@ -78,11 +83,23 @@ DEFAULTS: dict = {
 _WHOLE_VALUE_KEYS = {"replacements", "extra"}
 
 
-def default_config_path() -> Path:
+def _base_dir() -> Path:
     appdata = os.environ.get("APPDATA")
-    if appdata:
-        return Path(appdata) / "dictate" / "config.toml"
-    return Path.home() / ".config" / "dictate" / "config.toml"
+    return Path(appdata) if appdata else Path.home() / ".config"
+
+
+def default_config_path() -> Path:
+    return _base_dir() / "Hushtype" / "config.toml"
+
+
+def migrate_legacy_data() -> None:
+    """舊版（dictate）的設定、統計與歷史紀錄搬到新的 Hushtype 資料夾。"""
+    old, new = _base_dir() / "dictate", _base_dir() / "Hushtype"
+    if old.is_dir() and not new.exists():
+        try:
+            shutil.copytree(old, new)
+        except OSError:
+            pass
 
 
 def data_dir() -> Path:
@@ -144,7 +161,7 @@ def _toml_value(value) -> str:
 def save_config(config: dict, path: str | Path) -> None:
     """只寫入和預設值不同的部分，日後預設值更新時才會自動套用。"""
     changed = _diff(config, DEFAULTS)
-    lines = ["# dictate 設定檔（由應用程式產生，也可以手動編輯）", ""]
+    lines = ["# Hushtype 設定檔（由應用程式產生，也可以手動編輯）", ""]
     for section, values in changed.items():
         lines.append(f"[{section}]")
         for key, value in values.items():

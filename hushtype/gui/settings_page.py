@@ -324,22 +324,9 @@ class SettingsPage(QWidget):
         self.show_unplaced.setChecked(cfg["output"].get("show_unplaced", True))
         form.addRow(self.show_unplaced)
 
-        # 詞彙
-        card, form = self._card(lay, "詞彙")
-        self.terms = QPlainTextEdit("\n".join(cfg["vocabulary"]["terms"]))
-        self.terms.setPlaceholderText("一行一個，例如：\nGroq\n抹茶")
-        self.terms.setFixedHeight(110)
-        form.addRow("專有名詞", self.terms)
-        self.replacements = QPlainTextEdit(
-            "\n".join(f"{k} → {v}" for k, v in cfg["vocabulary"]["replacements"].items())
-        )
-        self.replacements.setPlaceholderText("一行一組，例如：\n拍森 → Python")
-        self.replacements.setFixedHeight(110)
-        form.addRow("固定替換", self.replacements)
-
         # 隱私與統計
         card, form = self._card(lay, "隱私與統計")
-        self.log_text = QCheckBox("在「最近活動」顯示辨識出的文字（只存在記憶體，關閉程式就清除）")
+        self.log_text = QCheckBox("在「歷史紀錄 → 事件」顯示辨識出的文字")
         self.log_text.setChecked(cfg["privacy"]["log_text"])
         form.addRow(self.log_text)
         self.stats_on = QCheckBox("記錄使用統計（只有時間與字數，不含內容）")
@@ -450,8 +437,6 @@ class SettingsPage(QWidget):
         cfg["output"]["convert_to_traditional"] = self.traditional.isChecked()
         cfg["output"]["show_unplaced"] = self.show_unplaced.isChecked()
 
-        cfg["vocabulary"]["terms"] = [t.strip() for t in self.terms.toPlainText().splitlines() if t.strip()]
-        cfg["vocabulary"]["replacements"] = parse_replacements(self.replacements.toPlainText())
 
         cfg["privacy"]["log_text"] = self.log_text.isChecked()
         cfg["stats"]["enabled"] = self.stats_on.isChecked()

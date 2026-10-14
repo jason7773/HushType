@@ -27,7 +27,7 @@ def run(config: dict) -> None:
         print(f"設定有問題：{engine.setup_error}")
     engine.bind()
     how = "按住" if config["hotkey"]["mode"] == "hold" else "按一下開始、再按一下結束"
-    print(f"dictate 已啟動：{how}「{config['hotkey']['key']}」說話。按 Ctrl+C 結束。", flush=True)
+    print(f"Hushtype 已啟動：{how}「{config['hotkey']['key']}」說話。按 Ctrl+C 結束。", flush=True)
     try:
         keyboard.wait()
     except KeyboardInterrupt:

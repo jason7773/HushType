@@ -10,18 +10,18 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 
 @pytest.fixture
 def window(tmp_path, monkeypatch):
-    import dictate.engine
-    import dictate.keystore as keystore
-    from dictate import autostart
-    from dictate.config import load_config
+    import hushtype.engine
+    import hushtype.keystore as keystore
+    from hushtype import autostart
+    from hushtype.config import load_config
 
     store = {}
     monkeypatch.setattr(keystore, "get_secret", lambda name: store.get(name))
     monkeypatch.setattr(keystore, "set_secret", lambda name, value: store.__setitem__(name, value))
-    monkeypatch.setattr(dictate.engine.Engine, "bind", lambda self: None)
-    monkeypatch.setattr(dictate.engine.Engine, "unbind", lambda self: None)
+    monkeypatch.setattr(hushtype.engine.Engine, "bind", lambda self: None)
+    monkeypatch.setattr(hushtype.engine.Engine, "unbind", lambda self: None)
     monkeypatch.setattr(autostart, "set_enabled", lambda on: None)
-    import dictate.updater as updater
+    import hushtype.updater as updater
 
     def no_network(*a, **kw):
         raise updater.UpdateError("測試中不連網")
@@ -30,11 +30,11 @@ def window(tmp_path, monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("APPDATA", str(tmp_path))
 
-    from dictate import gui
+    from hushtype import gui
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     gui.theme.apply(app)
-    path = tmp_path / "dictate" / "config.toml"
+    path = tmp_path / "Hushtype" / "config.toml"
     w = gui.MainWindow(path, load_config(path))
     w.store = store
     yield w
@@ -43,17 +43,16 @@ def window(tmp_path, monkeypatch):
 
 def test_starts_in_setup_state_without_key(window):
     assert window.engine.state == "setup"
-    assert window.status_page.state_title.text() == "需要設定"
+    assert window.home_page.state_title.text() == "需要設定"
 
 
 def test_save_settings_stores_key_and_applies(window):
-    from dictate.config import load_config
+    from hushtype.config import load_config
 
     page = window.settings_page
     page.stt_service.key.setText("gsk_test")
     page.stt_service.key.setModified(True)
     page.set_hotkey("f9")
-    page.replacements.setPlainText("拍森 → Python\n錯字=正字")
     page.save()
 
     assert page.note.text() == "已儲存，設定已生效"
@@ -61,7 +60,6 @@ def test_save_settings_stores_key_and_applies(window):
     assert window.engine.state == "idle"
     saved = load_config(window.config_path)
     assert saved["hotkey"]["key"] == "f9"
-    assert saved["vocabulary"]["replacements"] == {"拍森": "Python", "錯字": "正字"}
     assert "api_key" not in saved["stt"]
     assert "gsk_test" not in window.config_path.read_text(encoding="utf-8")
 
@@ -77,7 +75,7 @@ def test_legacy_key_in_config_moves_to_keystore(window, tmp_path):
 
 
 def test_custom_provider_settings(window):
-    from dictate.config import load_config
+    from hushtype.config import load_config
 
     page = window.settings_page
     f = page.cleanup_service
@@ -97,13 +95,13 @@ def test_custom_provider_settings(window):
 def test_events_update_activity_and_stats(window):
     window.on_event("result", {"chars": 12, "seconds": 3.0, "latency": 1.2})
     window.on_event("error", {"message": "辨識失敗：測試"})
-    assert window.status_page.activity.count() == 2
-    window.show_page(2)
+    assert window.history_page.events.count() == 2
+    window.show_page(3)
     assert window.stats_page.summary is not None
 
 
 def test_parse_replacements():
-    from dictate.gui.settings_page import parse_replacements
+    from hushtype.gui.settings_page import parse_replacements
 
     assert parse_replacements("a → b\nc->d\ne = f\n無分隔\n → x") == {"a": "b", "c": "d", "e": "f"}
 
@@ -131,8 +129,8 @@ def test_overlay_shows_error_and_can_be_disabled(window):
 
 
 def test_theme_setting_saved_and_applied(window):
-    from dictate.config import load_config
-    from dictate.gui import theme
+    from hushtype.config import load_config
+    from hushtype.gui import theme
 
     page = window.settings_page
     page.theme.setCurrentIndex(page.theme.findData("dark"))
@@ -144,7 +142,7 @@ def test_theme_setting_saved_and_applied(window):
 
 
 def test_mouse_button_hotkey_saved_with_label(window):
-    from dictate.config import load_config
+    from hushtype.config import load_config
 
     page = window.settings_page
     page.set_hotkey("mouse:x2")
@@ -153,7 +151,7 @@ def test_mouse_button_hotkey_saved_with_label(window):
     assert page.hotkey.currentData() == "mouse:x1"
     page.save()
     assert load_config(window.config_path)["hotkey"]["key"] == "mouse:x1"
-    assert "滑鼠側鍵（後）" in window.status_page.state_hint.text() or window.engine.state == "setup"
+    assert "滑鼠側鍵（後）" in window.home_page.state_hint.text() or window.engine.state == "setup"
 
 
 def test_wheel_over_dropdown_does_not_change_value(window):
@@ -162,7 +160,7 @@ def test_wheel_over_dropdown_does_not_change_value(window):
 
     page = window.settings_page
     window.show()
-    window.show_page(1)
+    window.show_page(4)
     for box in (page.mode, page.cpm):
         before = box.currentIndex() if hasattr(box, "currentIndex") else box.value()
         event = QWheelEvent(
@@ -189,7 +187,7 @@ def test_unplaced_text_and_failure_card(window):
 
 
 def test_switching_provider_suggests_its_models_and_key(window):
-    from dictate.config import load_config
+    from hushtype.config import load_config
 
     form = window.settings_page.stt_service
     form.provider.setCurrentIndex(form.provider.findData("gemini"))
@@ -205,27 +203,70 @@ def test_switching_provider_suggests_its_models_and_key(window):
     assert window.store["GEMINI_API_KEY"] == "gm-key"
 
 
-def test_copy_last_result_from_activity(window):
-    window.on_event("result", {"chars": 4, "seconds": 2.0, "latency": 0.8, "output": "第一段話"})
+def test_history_keeps_results_and_copies(window):
+    window.on_event("result", {"chars": 4, "seconds": 2.0, "latency": 0.8, "output": "第一段話", "app": "line.exe"})
     window.engine.last_text = "第二段話"
     window.on_event("result", {"chars": 4, "seconds": 2.0, "latency": 0.8, "output": "第二段話"})
-    page = window.status_page
-    assert "第二段話" not in page.activity.item(0).text()  # 沒開 log_text 時不顯示內容
+    page = window.history_page
+    assert [e.text for e in window.history.entries] == ["第二段話", "第一段話"]
+    assert "第二段話" not in page.events.item(0).text()  # 事件列表不顯示內容
+    window.show_page(1)
     page.copy_last()
     assert QtWidgets.QApplication.clipboard().text() == "第二段話"
-    page._copy_item(page.activity.item(1))
+    page.copy(window.history.entries[1])
     assert QtWidgets.QApplication.clipboard().text() == "第一段話"
+    page.delete(window.history.entries[0])
+    assert [e.text for e in window.history.entries] == ["第一段話"]
+    assert not window.history.path.exists()  # 預設不寫硬碟
+
+
+def test_dictionary_page_saves_immediately(window):
+    from hushtype.config import load_config
+
+    page = window.dictionary_page
+    page.term_input.setText("YouBike，陳禹誌, Groq")
+    page.add_terms()
+    page.wrong_input.setText("拍森")
+    page.right_input.setText("Python")
+    page.add_replacement()
+    saved = load_config(window.config_path)["vocabulary"]
+    assert saved["terms"] == ["YouBike", "陳禹誌", "Groq"]
+    assert saved["replacements"] == {"拍森": "Python"}
+    assert window.engine.config["vocabulary"]["terms"] == saved["terms"]
+    page.remove_term("陳禹誌")
+    page.search.setText("you")
+    assert page.chips.count() == 1
+    assert load_config(window.config_path)["vocabulary"]["terms"] == ["YouBike", "Groq"]
+
+
+def test_home_page_insights(window, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from hushtype.stats import UsageLog, usage_db_path
+
+    log = UsageLog(usage_db_path(window.engine.config))
+    now = datetime.now()
+    for d in (0, 1, 2, 5):
+        log.record(started_at=now - timedelta(days=d), audio_seconds=60, chars=150, latency_seconds=1, status="ok", app="chrome.exe")
+    window.show_page(0)
+    page = window.home_page
+    assert page.days["active"].text().startswith("4")
+    assert page.days["streak"].text().startswith("3")
+    assert page.tiles["speed"].value.text().startswith("150")
+    assert len(page.heatmap.counts) == 4
+    window.show_page(3)
+    assert window.stats_page.summary["apps"][0]["app"] == "Chrome"
 
 
 def test_update_banner_and_install(window, monkeypatch):
-    from dictate import updater
+    from hushtype import updater
 
     rel = updater.Release(version="9.9.9", url="https://example/x.exe", size=1, sha256="", page="")
     window.updates.release = rel
     window._update_checked(rel, "有新版 9.9.9")
-    assert not window.status_page.update_card.isHidden()
+    assert not window.home_page.update_card.isHidden()
     assert window.update_action.isVisible()
 
     monkeypatch.setattr(updater, "can_self_update", lambda: False)
     window.start_update()
-    assert "開發版" in window.status_page.update_text.text()
+    assert "開發版" in window.home_page.update_text.text()

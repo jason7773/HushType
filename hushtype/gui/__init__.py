@@ -35,13 +35,23 @@ from .overlay import Overlay
 from .result_card import ResultCard
 from .settings_page import SettingsPage
 from .stats_page import StatsPage
-from .status_page import StatusPage, key_label
+from .dictionary_page import DictionaryPage
+from .history_page import HistoryPage
+from .home_page import HomePage
+from ..hotkeys import key_label
+from ..history import History
+from ..config import data_dir
 from .update import UpdateController
 from .widgets import label
 
 log = logging.getLogger(__name__)
 
-INSTANCE_NAME = "dictate-single-instance"
+INSTANCE_NAME = "hushtype-single-instance"
+
+
+PAGE_HOME, PAGE_HISTORY, PAGE_DICTIONARY, PAGE_STATS, PAGE_SETTINGS = range(5)
+NAV_TOP = [("首頁", "home"), ("歷史紀錄", "history"), ("字典", "dictionary"), ("統計", "stats")]
+NAV_BOTTOM = [("設定", "settings")]
 
 
 class Bridge(QObject):
@@ -62,8 +72,8 @@ class MainWindow(QMainWindow):
         self._hide_notice_shown = False
         self._last_error_notice = 0.0
 
-        self.setWindowTitle("dictate")
-        self.setWindowIcon(theme.make_icon(theme.STATES["idle"][1]))
+        self.setWindowTitle("Hushtype")
+        self.setWindowIcon(theme.make_icon())
         self.resize(940, 700)
         self.setMinimumSize(720, 520)
 
@@ -82,42 +92,48 @@ class MainWindow(QMainWindow):
         brand.setContentsMargins(20, 20, 20, 10)
         brand.setSpacing(10)
         logo = QLabel()
-        pm = theme.make_icon_pixmap(theme.STATES["idle"][1], 56)
+        pm = theme.make_icon_pixmap(None, 56)
         pm.setDevicePixelRatio(2)
         logo.setPixmap(pm)
         brand.addWidget(logo)
-        brand.addWidget(label("dictate", "brand"), 1)
+        brand.addWidget(label("Hushtype", "brand"), 1)
         side_lay.addLayout(brand)
-        self.nav = QListWidget()
-        self.nav.setObjectName("sidebar")
-        self.nav.setIconSize(QSize(20, 20))
-        for text in ("狀態", "設定", "統計"):
-            self.nav.addItem(QListWidgetItem(text))
-        self.nav.setFocusPolicy(Qt.NoFocus)
-        self.refresh_nav_icons()
+        self.nav = self._nav_list(NAV_TOP)
         side_lay.addWidget(self.nav, 1)
+        self.nav_bottom = self._nav_list(NAV_BOTTOM)
+        self.nav_bottom.setFixedHeight(56)
+        side_lay.addWidget(self.nav_bottom)
+        self.refresh_nav_icons()
         version = label(f"版本 {__version__}", "muted")
         version.setContentsMargins(22, 0, 0, 14)
         version.setAutoFillBackground(False)
         side_lay.addWidget(version)
         row.addWidget(side)
 
+        self.history = History(data_dir() / "history.db", config["history"]["retention"])
         self.pages = QStackedWidget()
-        self.status_page = StatusPage(self)
-        self.settings_page = SettingsPage(self)
+        self.home_page = HomePage(self)
+        self.history_page = HistoryPage(self)
+        self.dictionary_page = DictionaryPage(self)
         self.stats_page = StatsPage(self)
-        for page in (self.status_page, self.settings_page, self.stats_page):
+        self.settings_page = SettingsPage(self)
+        for page in (self.home_page, self.history_page, self.dictionary_page, self.stats_page, self.settings_page):
             self.pages.addWidget(page)
         row.addWidget(self.pages, 1)
         self.setCentralWidget(central)
-        self.nav.currentRowChanged.connect(self._show_page)
-        self.nav.setCurrentRow(0)
+        self.nav.currentRowChanged.connect(lambda i: i >= 0 and self._select(i))
+        self.nav_bottom.currentRowChanged.connect(lambda i: i >= 0 and self._select(len(NAV_TOP) + i))
+        self._select(PAGE_HOME)
+        purge = QTimer(self)
+        purge.setInterval(3600 * 1000)
+        purge.timeout.connect(self.history.purge)
+        purge.start()
 
         self.overlay = Overlay(lambda: self.engine.recorder.level)
         self.card = ResultCard(self.retry_failed)
         self.updates = UpdateController(self)
         self.updates.checked.connect(self._update_checked)
-        self.updates.progress.connect(lambda pct: self.status_page.show_update(f"正在下載新版… {pct}%", busy=True))
+        self.updates.progress.connect(lambda pct: self.home_page.show_update(f"正在下載新版… {pct}%", busy=True))
         self.updates.failed.connect(self._update_failed)
         self.updates.installing.connect(self._update_installing)
         self._update_notified = False
@@ -127,30 +143,48 @@ class MainWindow(QMainWindow):
         try:
             self.engine.bind()
         except Exception as e:  # 例如沒有權限監聽鍵盤
-            self.status_page.add_activity(f"無法註冊快捷鍵：{e}", ok=False)
+            self.add_event(f"無法註冊快捷鍵：{e}", ok=False)
         if config["ui"].get("check_updates", True):
             QTimer.singleShot(4000, self.updates.check)
 
     # ---- 頁面 ----
 
+    def _nav_list(self, items) -> QListWidget:
+        nav = QListWidget()
+        nav.setObjectName("sidebar")
+        nav.setIconSize(QSize(20, 20))
+        nav.setFocusPolicy(Qt.NoFocus)
+        nav.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        for text, _ in items:
+            nav.addItem(QListWidgetItem(text))
+        return nav
+
     def refresh_nav_icons(self) -> None:
-        for i, kind in enumerate(("status", "settings", "stats")):
-            self.nav.item(i).setIcon(theme.nav_icon(kind, theme.current["text_secondary"]))
+        color = theme.current["text_secondary"]
+        for nav, items in ((self.nav, NAV_TOP), (self.nav_bottom, NAV_BOTTOM)):
+            for i, (_, kind) in enumerate(items):
+                nav.item(i).setIcon(theme.nav_icon(kind, color))
 
     def apply_theme(self) -> None:
         theme.apply(QApplication.instance(), self.engine.config["ui"]["theme"])
         self.refresh_nav_icons()
-        self.status_page.set_state(self.engine.state)
+        self.home_page.set_state(self.engine.state)
+        self.home_page.heatmap.update()
 
-    def _show_page(self, i: int) -> None:
+    def _select(self, i: int) -> None:
+        """切換頁面並同步側邊欄上下兩組選單的選取狀態。"""
+        top = i < len(NAV_TOP)
+        for nav, row in ((self.nav, i if top else -1), (self.nav_bottom, -1 if top else i - len(NAV_TOP))):
+            nav.blockSignals(True)
+            nav.setCurrentRow(row)
+            nav.blockSignals(False)
         self.pages.setCurrentIndex(i)
-        if i == 0:
-            self.status_page.refresh()
-        elif i == 2:
-            self.stats_page.refresh()
+        page = self.pages.widget(i)
+        if hasattr(page, "refresh") and page is not self.settings_page:
+            page.refresh()
 
     def show_page(self, i: int) -> None:
-        self.nav.setCurrentRow(i)
+        self._select(i)
         self.bring_to_front()
 
     def bring_to_front(self) -> None:
@@ -168,14 +202,15 @@ class MainWindow(QMainWindow):
         self.tray_state.setEnabled(False)
         menu.addAction(self.tray_state)
         menu.addSeparator()
-        menu.addAction("開啟 dictate", lambda: self.show_page(0))
+        menu.addAction("開啟 Hushtype", lambda: self.show_page(PAGE_HOME))
         self.pause_action = menu.addAction("暫停", lambda: self.set_paused(not self.engine.paused))
         self.copy_action = menu.addAction("複製上一段文字", self.copy_last)
         self.retry_action = menu.addAction("重試失敗的錄音", self.retry_failed)
         self.update_action = menu.addAction("更新並重新啟動", self.start_update)
         self.update_action.setVisible(False)
-        menu.addAction("設定", lambda: self.show_page(1))
-        menu.addAction("使用統計", lambda: self.show_page(2))
+        menu.addAction("設定", lambda: self.show_page(PAGE_SETTINGS))
+        menu.addAction("歷史紀錄", lambda: self.show_page(PAGE_HISTORY))
+        menu.addAction("使用統計", lambda: self.show_page(PAGE_STATS))
         menu.addSeparator()
         menu.addAction("結束", self.quit)
         self.tray.setContextMenu(menu)
@@ -194,32 +229,31 @@ class MainWindow(QMainWindow):
         if kind == "state":
             state = data["state"]
             name, color = theme.STATES[state]
-            self.tray.setIcon(theme.make_icon(color))
-            self.tray.setToolTip(f"dictate：{name}")
+            self.tray.setIcon(theme.state_icon(state))
+            self.tray.setToolTip(f"Hushtype：{name}")
             self.tray_state.setText(f"{name}・{key_label(self.engine.config['hotkey']['key'])}")
             self.pause_action.setText("恢復" if self.engine.paused else "暫停")
             self.copy_action.setEnabled(bool(self.engine.last_text))
             self.retry_action.setEnabled(self.engine.failed is not None)
             if state == "recording":
                 self.card.dismiss()
-            self.status_page.set_state(state)
+            self.home_page.set_state(state)
             self._update_overlay(state)
         elif kind == "result":
             text = data.get("text")
             what = f"「{text}」" if text else f"{data['chars']} 字"
-            self.status_page.add_activity(
-                f"已輸入 {what}（說 {data['seconds']:.0f} 秒，等 {data['latency']:.1f} 秒）", output=data.get("output", "")
-            )
-            if self.pages.currentIndex() == 0:
-                self.status_page.refresh()
-            elif self.pages.currentIndex() == 2:
-                self.stats_page.refresh()
+            self.add_event(f"已輸入 {what}（說 {data['seconds']:.0f} 秒，等 {data['latency']:.1f} 秒）")
+            if data.get("output"):
+                self.history.add(data["output"], app=data.get("app", ""), seconds=data["seconds"])
+            current = self.pages.currentWidget()
+            if current in (self.home_page, self.history_page, self.stats_page):
+                current.refresh()
         elif kind == "unplaced":
             self.card.show_text(data["text"])
         elif kind == "skipped":
-            self.status_page.add_activity(f"略過：{data['reason']}")
+            self.add_event(f"略過：{data['reason']}")
         elif kind == "error":
-            self.status_page.add_activity(data["message"], ok=False)
+            self.add_event(data["message"], ok=False)
             if data.get("retry"):
                 self.overlay.dismiss()
                 self.card.show_failure(data["message"].split("：", 1)[-1][:120])
@@ -227,7 +261,7 @@ class MainWindow(QMainWindow):
                 self.overlay.show_error(data["message"].split("：")[0][:8])
             if not self.isVisible() and time.monotonic() - self._last_error_notice > 15:
                 self._last_error_notice = time.monotonic()
-                self.tray.showMessage("dictate", data["message"], QSystemTrayIcon.Warning, 5000)
+                self.tray.showMessage("Hushtype", data["message"], QSystemTrayIcon.Warning, 5000)
 
     def _update_overlay(self, state: str) -> None:
         if not self.engine.config["ui"]["overlay"]:
@@ -239,13 +273,22 @@ class MainWindow(QMainWindow):
         elif self.overlay.mode in ("recording", "processing"):
             self.overlay.dismiss()
 
+    def add_event(self, text: str, ok: bool = True) -> None:
+        self.history_page.add_event(text, ok)
+
+    def set_history_retention(self, retention: str) -> None:
+        self.history.set_retention(retention)
+        cfg = copy.deepcopy(self.engine.config)
+        cfg["history"]["retention"] = self.history.retention
+        self.save_settings(cfg, {}, None)
+
     def copy_last(self) -> None:
         if self.engine.last_text:
             QApplication.clipboard().setText(self.engine.last_text)
 
     def retry_failed(self) -> None:
         if not self.engine.retry():
-            self.status_page.add_activity("沒有可以重試的錄音", ok=False)
+            self.add_event("沒有可以重試的錄音", ok=False)
 
     # ---- 更新 ----
 
@@ -256,22 +299,22 @@ class MainWindow(QMainWindow):
         self.settings_page.set_update_note(message)
         if release is None:
             return
-        self.status_page.show_update(f"有新版 {release.version} 可以更新（目前 {__version__}）。")
+        self.home_page.show_update(f"有新版 {release.version} 可以更新（目前 {__version__}）。")
         self.update_action.setText(f"更新到 {release.version} 並重新啟動")
         self.update_action.setVisible(True)
         if not self.isVisible() and not self._update_notified:
             self._update_notified = True
-            self.tray.showMessage("dictate 有新版", f"版本 {release.version}，打開 dictate 按「更新並重新啟動」。", QSystemTrayIcon.Information, 5000)
+            self.tray.showMessage("Hushtype 有新版", f"版本 {release.version}，打開 Hushtype 按「更新並重新啟動」。", QSystemTrayIcon.Information, 5000)
 
     def start_update(self) -> None:
         if self.engine.recorder.recording or self.engine.busy:
-            self.status_page.show_update("正在錄音或處理中，完成後再按一次更新。")
+            self.home_page.show_update("正在錄音或處理中，完成後再按一次更新。")
             return
-        self.status_page.show_update("正在下載新版…", busy=True)
+        self.home_page.show_update("正在下載新版…", busy=True)
         self.updates.install()
 
     def _update_failed(self, message: str) -> None:
-        self.status_page.show_update(f"更新失敗：{message}")
+        self.home_page.show_update(f"更新失敗：{message}")
         self.settings_page.set_update_note(f"更新失敗：{message}")
 
     def _update_installing(self) -> None:
@@ -283,8 +326,8 @@ class MainWindow(QMainWindow):
 
     # ---- 設定 ----
 
-    def save_settings(self, config: dict, keys: dict[str, str], autostart_on: bool) -> str | None:
-        """儲存並套用設定；失敗時回傳錯誤訊息。"""
+    def save_settings(self, config: dict, keys: dict[str, str], autostart_on: bool | None) -> str | None:
+        """儲存並套用設定；失敗時回傳錯誤訊息。autostart_on 為 None 時不動開機啟動。"""
         for name, value in keys.items():
             try:
                 keystore.set_secret(name, value)
@@ -294,16 +337,17 @@ class MainWindow(QMainWindow):
             save_config(config, self.config_path)
         except OSError as e:
             return f"無法寫入設定檔：{e}"
-        try:
-            autostart.set_enabled(autostart_on)
-        except OSError as e:
-            return f"無法設定開機自動啟動：{e}"
+        if autostart_on is not None:
+            try:
+                autostart.set_enabled(autostart_on)
+            except OSError as e:
+                return f"無法設定開機自動啟動：{e}"
         try:
             self.engine.apply_config(config)
         except Exception as e:
             return f"套用設定失敗：{e}"
         self.apply_theme()
-        self.status_page.refresh()
+        self.home_page.refresh()
         return self.engine.setup_error or None
 
     # ---- 關閉 ----
@@ -316,7 +360,7 @@ class MainWindow(QMainWindow):
         self.hide()
         if not self._hide_notice_shown:
             self._hide_notice_shown = True
-            self.tray.showMessage("dictate 仍在執行", "視窗已縮到系統匣，快捷鍵照常可用。", QSystemTrayIcon.Information, 4000)
+            self.tray.showMessage("Hushtype 仍在執行", "視窗已縮到系統匣，快捷鍵照常可用。", QSystemTrayIcon.Information, 4000)
 
     def quit(self) -> None:
         self._quitting = True
@@ -331,7 +375,7 @@ class MainWindow(QMainWindow):
 
 
 def _notify_running_instance() -> bool:
-    """已經有 dictate 在執行時，請它把視窗叫出來，並回傳 True。"""
+    """已經有 Hushtype 在執行時，請它把視窗叫出來，並回傳 True。"""
     sock = QLocalSocket()
     sock.connectToServer(INSTANCE_NAME)
     if sock.waitForConnected(300):
@@ -345,7 +389,7 @@ def _notify_running_instance() -> bool:
 def run(config_path: Path, *, minimized: bool = False) -> int:
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("dictate")
+    app.setApplicationName("Hushtype")
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
     font = QFont()
@@ -364,7 +408,7 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
     except (tomllib.TOMLDecodeError, OSError) as e:
         QMessageBox.warning(
             None,
-            "dictate",
+            "Hushtype",
             f"設定檔有錯誤，已改用預設值啟動。\n\n{config_path}\n{e}\n\n在「設定」頁按儲存會覆寫這個檔案。",
         )
         config = copy.deepcopy(DEFAULTS)
@@ -380,7 +424,7 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
     QGuiApplication.styleHints().colorSchemeChanged.connect(lambda _: window.apply_theme())
 
     if minimized:
-        window.tray.showMessage("dictate 已啟動", f"按住「{key_label(config['hotkey']['key'])}」說話。", QSystemTrayIcon.Information, 3000)
+        window.tray.showMessage("Hushtype 已啟動", f"按住「{key_label(config['hotkey']['key'])}」說話。", QSystemTrayIcon.Information, 3000)
     else:
         window.show()
     return app.exec()
