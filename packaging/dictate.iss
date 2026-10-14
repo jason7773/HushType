@@ -36,6 +36,8 @@ Name: "desktopicon"; Description: "建立桌面捷徑"; GroupDescription: "其�
 
 [Files]
 Source: "..\dist\dictate\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; 清掉舊版留下的程式檔，避免新舊版本混在一起

@@ -1,50 +1,86 @@
 # dictate
 
-Windows 語音輸入工具：在任何程式裡按住快捷鍵說話，放開後自動辨識、整理文字，貼到游標位置。
+**重視隱私的 Windows 語音輸入工具。** 在任何程式裡按住快捷鍵說話，放開後自動辨識、去掉贅字、加上標點，貼到游標所在的位置。錄音和文字只送到**你自己選、自己申請金鑰**的服務，也可以完全在自己電腦上執行。
 
-- 常駐系統匣，圖示顏色顯示狀態（藍：待命、紅：錄音中、黃：處理中、灰：暫停或需要設定）
-- 錄音時螢幕下方正中間出現小視窗，五條音波跟著聲音跳動；放開後顯示「轉譯中」，貼上後自動消失
-- 淺色／深色模式，可跟隨 Windows 或手動切換
-- 快捷鍵可以用鍵盤按鍵，也可以用滑鼠中鍵或側鍵；快捷鍵會被攔下，不會同時觸發其他程式（例如 F12 不會打開開發者工具）
-- 游標不在輸入框時，螢幕下方會顯示辨識出的文字與「複製」按鈕；辨識失敗時錄音會保留，可以按「重試」
-- 所有設定都在程式視窗內完成：快捷鍵、麥克風、服務、模型、整理規則、詞彙、開機自動啟動
-- 使用統計儀表板：每天、每月的使用時間、字數、估計省下的時間
-- 語音辨識與文字整理可以選 **Groq**、**OpenAI**、**Google Gemini**，或任何 OpenAI 相容服務（包括在自己電腦跑的模型）
+*A privacy-first voice dictation app for Windows: hold a hotkey, speak, release, and cleaned-up text is pasted where your cursor is. Audio only goes to the speech/LLM service you choose with your own API key (Groq, OpenAI, Gemini, or a local OpenAI-compatible server). UI is in Traditional Chinese.*
+
+[![build](https://github.com/jason7773/dictate/actions/workflows/build.yml/badge.svg)](https://github.com/jason7773/dictate/actions/workflows/build.yml)
+[![release](https://img.shields.io/github/v/release/jason7773/dictate)](https://github.com/jason7773/dictate/releases/latest)
+[![license](https://img.shields.io/github/license/jason7773/dictate)](LICENSE)
+
+<p align="center">
+  <img src="docs/images/status-light.png" width="420" alt="狀態頁">
+  <img src="docs/images/stats-dark.png" width="420" alt="使用統計（深色模式）">
+</p>
+
+## 為什麼做這個
+
+市面上的 AI 語音輸入工具很好用，但錄音上傳到哪裡、存多久、會不會拿去訓練，使用者完全無法控制。dictate 只做一件事：把你的聲音送到**你指定的**服務，換回整理好的文字，其他什麼都不送。
+
+## 功能
+
+- **按住說話，放開就貼上**：任何程式都能用；也可以改成「按一下開始、再按一下結束」
+- **AI 整理**：去除「嗯、那個、就是」等贅字，處理說錯改口，加全形標點，長內容自動分段與條列
+- **繁體中文與台灣用語**，英文單字與專有名詞保留原文；可設定專有名詞與固定替換
+- **錄音小視窗**：錄音時螢幕下方出現五條跟著聲音跳動的音波，處理時顯示「轉譯中」，貼上後消失
+- **找不到輸入框時不會弄丟文字**：螢幕下方會跳出文字與「複製」按鈕；辨識失敗時錄音會保留，可以按「重試」
+- **快捷鍵可用鍵盤或滑鼠中鍵／側鍵**，而且會被攔下，不會同時觸發其他程式（例如 F12 不會打開開發者工具）
+- **使用統計**：每天、每月說了多久、輸出多少字、估計省下多少時間（只記錄數字，不含內容）
+- **常駐系統匣**、開機自動啟動、淺色／深色模式
+- **程式內更新**：有新版時按「更新並重新啟動」即可，設定都會保留
+
+<p align="center">
+  <img src="docs/images/overlay-recording.png" height="44" alt="錄音中">
+  &nbsp;
+  <img src="docs/images/overlay-processing.png" height="44" alt="轉譯中">
+  <br><br>
+  <img src="docs/images/copy-card.png" width="380" alt="找不到輸入框時的複製框">
+</p>
+
+## 安裝
+
+1. 到 [Releases](https://github.com/jason7773/dictate/releases/latest) 下載 `dictate-setup-x.y.z.exe`
+2. 執行安裝檔（不需要系統管理員權限）。Windows 可能顯示「Windows 已保護您的電腦」，按「其他資訊 → 仍要執行」
+3. 打開 dictate，到「設定」選擇服務、貼上 API 金鑰，按「儲存」
+4. 到「狀態」頁按「測試連線」，看到 ✓ 就可以開始用了
+
+系統需求：Windows 10 或 11（64 位元）、麥克風、可連網（使用雲端服務時）。
+
+## 選擇服務
+
+語音辨識和文字整理可以分別選不同的服務。金鑰存在 Windows 認證管理員，不會寫進設定檔。
+
+| 服務 | 金鑰申請 | 說明 |
+|---|---|---|
+| **Groq**（預設） | [console.groq.com/keys](https://console.groq.com/keys) | 有免費額度，速度很快。依其條款，API 資料不會用來訓練模型 |
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | 付費。API 資料預設不用來訓練，會保留一段時間供濫用審查 |
+| **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | ⚠ **免費方案的內容可能被 Google 用來改善產品**，機密內容請開付費方案 |
+| **其他 OpenAI 相容服務** | — | 例如自己架的 whisper.cpp、llama.cpp server。填本機網址時資料完全不出你的電腦 |
+
+各家的資料政策會變動，請以該服務最新的條款為準。
 
 ## 隱私
 
-- 錄音只放在記憶體，不寫入硬碟
-- 預設不顯示、不保存辨識出的文字
-- API 金鑰存在 Windows 認證管理員，不寫進設定檔
-- 使用統計只記錄時間與字數，不含任何內容，存在 `%APPDATA%\dictate\usage.db`
-- 只有語音與逐字稿會送到你在設定頁選擇的服務；另外只有檢查更新會連到 GitHub（可在設定關閉）
-- 各服務的資料政策不同：Groq、OpenAI 的 API 資料不會拿去訓練模型；**Gemini 免費方案的內容可能被 Google 拿去改善產品**，機密內容請改用付費方案
+- 錄音只放在記憶體，不寫入硬碟；辨識失敗時保留最後一段，供「重試」使用，關閉程式即清除
+- 辨識出的文字預設不顯示也不保存；「複製上一次結果」用的文字只在記憶體裡
+- 使用統計只記錄時間與字數，存在 `%APPDATA%\dictate\usage.db`
+- 除了你選的服務，程式只會連到 GitHub 檢查新版（可在設定關閉）
 
-## 安裝與更新
+詳見 [SECURITY.md](SECURITY.md)。
 
-1. 到 [Releases](../../releases) 下載最新的 `dictate-setup-x.y.z.exe`
-2. 執行安裝檔（不需要系統管理員權限）
-3. 打開 dictate，到「設定」頁貼上 [Groq API 金鑰](https://console.groq.com/keys)，按「儲存」
+## 常見問題
 
-**更新**：有新版時，「狀態」頁上方會出現提示，按「更新並重新啟動」就會自動下載、核對檔案、安裝並重新開啟，設定與統計都會保留。也可以到「設定 → 一般」按「立即檢查更新」，或手動下載新版安裝檔直接執行。檢查更新只會連到 GitHub，不會送出任何使用資料。
+**按快捷鍵沒反應？** 到「狀態」頁看「系統檢查」。如果其他程式是以系統管理員身分執行，一般權限的 dictate 收不到在那個視窗裡按的快捷鍵，這是 Windows 的限制。
 
-### 程式碼簽章（自簽憑證）
+**文字沒有貼上？** 游標要在可以打字的地方。找不到輸入框時，螢幕下方會出現「複製」框；系統匣選單也有「複製上一段文字」。
 
-在自己的電腦執行一次 `packaging\setup-signing.bat`，它會：
+**有些字常常辨識錯？** 到「設定 → 詞彙」加入專有名詞，或設定固定替換（例如 `拍森 → Python`）。
 
-1. 建立一張只屬於你的程式碼簽章憑證（有效 5 年）
-2. 讓這台電腦信任它（Windows 會跳出確認視窗，按「是」）
-3. 引導你把憑證存到 GitHub Secrets，之後自動打包的安裝檔都會簽上你的名字
-
-自簽憑證只有在匯入過的電腦上被信任。從瀏覽器下載的檔案第一次執行時，Windows SmartScreen 仍可能提示「已保護您的電腦」，按「其他資訊 → 仍要執行」即可；或在檔案上按右鍵 →「內容」→ 勾選「解除封鎖」。
-
-## 發佈新版
-
-把 `dictate/__init__.py` 的 `__version__` 改成新版本號並推到 `main`，GitHub 就會自動打包、建立 `v版本號` 的 Release。
-
-版本號沒變的 commit 也會打包，安裝檔放在 Actions 的 Artifacts（版本號加上 `-dev.N`）。
+**想完全離線？** 在「設定」把服務改成「其他 OpenAI 相容服務」，填本機 whisper.cpp / llama.cpp server 的網址即可。
 
 ## 開發
+
+需要 Python 3.12 與 Windows（快捷鍵、貼上、UI Automation 都依賴 Windows）。
 
 ```
 py -3.12 -m venv .venv
@@ -54,26 +90,25 @@ py -3.12 -m venv .venv
 .venv\Scripts\python -m pytest
 ```
 
-本機打包需要 [Inno Setup 6](https://jrsoftware.org/isdl.php) 與 `pip install pyinstaller`，然後執行 `pwsh packaging\build.ps1 -Version 0.2.0`。
+本機打包需要 [Inno Setup 6](https://jrsoftware.org/isdl.php) 與 `pip install pyinstaller`，然後執行 `pwsh packaging\build.ps1 -Version 0.0.1`。
 
 ### 架構
 
 ```
 dictate/
-  hotkeys.py      鍵盤與滑鼠快捷鍵、錄製按鍵
-  focus.py        判斷游標是不是在輸入框（UI Automation）
-  updater.py      檢查、下載、安裝新版
   engine.py       快捷鍵、錄音、處理、貼上；以事件回報狀態（介面與主控台共用）
   pipeline.py     辨識 → 繁體 → LLM 整理 → 替換（與平台無關）
   providers/      服務介面、註冊表與各家實作
+  hotkeys.py      鍵盤與滑鼠快捷鍵、錄製按鍵
+  focus.py        判斷游標是不是在輸入框（UI Automation）
   audio.py        麥克風錄音，輸出記憶體中的 WAV
   output.py       剪貼簿貼上或模擬打字
   config.py       設定檔讀寫與預設整理規則
   keystore.py     API 金鑰存取（Windows 認證管理員）
   autostart.py    開機自動啟動
+  updater.py      檢查、下載、安裝新版
   stats.py        本機使用紀錄（SQLite）與彙總
-  dashboard.py    匯出 HTML 統計報表
-  gui/            主視窗、系統匣、錄音小視窗、狀態／設定／統計頁
+  gui/            主視窗、系統匣、錄音小視窗、複製框、狀態／設定／統計頁
 packaging/        PyInstaller + Inno Setup 打包、簽章腳本
 ```
 
@@ -92,6 +127,16 @@ class AzureSTT(SpeechToText):
 
 再到 `dictate/providers/__init__.py` 匯入它。文字整理服務同理，用 `TextCleaner` 與 `@register_cleaner`。
 
-## 作者
+### 發佈新版
 
-[@jason7773](https://github.com/jason7773)（抹茶），與 Claude 協作開發。
+把 `dictate/__init__.py` 的 `__version__` 改成新版本號並推到 `main`，GitHub Actions 會測試、打包並建立 `v版本號` 的 Release，已安裝的程式就會提示更新。版本號沒變的 commit 也會打包，安裝檔放在 Actions 的 Artifacts。
+
+### 程式碼簽章（維護者）
+
+`packaging\setup-signing.bat` 會建立自簽的程式碼簽章憑證、讓本機信任它，並引導把憑證存到 GitHub Secrets（`CERT_PFX_BASE64`、`CERT_PASSWORD`），之後的安裝檔會自動簽章。自簽憑證只有在匯入過的電腦上被信任；要讓所有人都不出現警告，需要向憑證機構購買憑證或使用 Azure Trusted Signing。
+
+## 授權
+
+[MIT](LICENSE)。安裝檔內附的第三方元件見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+作者：[@jason7773](https://github.com/jason7773)（抹茶），與 Claude 協作開發。

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 回報安全漏洞
+    url: https://github.com/jason7773/dictate/security/advisories/new
+    about: 可能造成資料外洩的問題請私下回報，不要開公開 Issue
