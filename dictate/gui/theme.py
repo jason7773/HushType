@@ -24,6 +24,7 @@ LIGHT = {
     "accent_text": "#ffffff",
     "good": "#127a1f",
     "bad": "#c93434",
+    "warn": "#9a6200",
 }
 
 DARK = {
@@ -41,6 +42,7 @@ DARK = {
     "accent_text": "#ffffff",
     "good": "#4cc26a",
     "bad": "#ef7474",
+    "warn": "#e8b04a",
 }
 
 # 引擎狀態 → (顯示名稱, 顏色)
@@ -128,6 +130,7 @@ def _stylesheet(c: dict) -> str:
     #stateTitle {{ font-size: 24px; font-weight: 700; }}
     #good {{ color: {c['good']}; }}
     #bad {{ color: {c['bad']}; }}
+    #warn {{ color: {c['warn']}; font-size: 12px; }}
 
     QPushButton {{
         background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 8px;

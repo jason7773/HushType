@@ -3,8 +3,9 @@
 引擎透過 listener(kind, data) 回報事件，不直接印出或顯示任何東西：
 - "state"    {"state": idle / recording / processing / paused / setup}
 - "result"   {"chars", "seconds", "latency", "text"（只有開啟 log_text 才有）}
+- "unplaced" {"text"}：貼上時找不到輸入框，介面應顯示文字讓使用者複製
 - "skipped"  {"reason"}
-- "error"    {"message"}
+- "error"    {"message", "retry"（True 表示錄音還留著，可以呼叫 retry() 重送）}
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
-from . import hotkeys
+from . import focus, hotkeys
 from .audio import Recorder, Recording
 from .output import insert_text
 from .pipeline import Pipeline, build_pipeline
@@ -45,6 +46,10 @@ class Engine:
         self._hooks: list = []
         self._mouse: hotkeys.MouseHook | None = None
         self._bound = False
+        self.last_text = ""  # 上一段輸出的文字，只放在記憶體
+        self.failed: tuple[Recording, datetime] | None = None  # 辨識失敗、可以重試的錄音
+        self._keys: queue.Queue = queue.Queue()
+        threading.Thread(target=self._key_worker, daemon=True).start()
         self._started_at = datetime.now()
         self.apply_config(config, rebind=False)
         threading.Thread(target=self._worker, daemon=True).start()
@@ -129,9 +134,11 @@ class Engine:
         else:
             import keyboard
 
+            # suppress：攔下這個鍵，避免例如 F12 同時打開瀏覽器的開發者工具
+            suppress = self.config["hotkey"].get("suppress", True)
             self._hooks = [
-                keyboard.on_press_key(key, self.on_press),
-                keyboard.on_release_key(key, self.on_release),
+                keyboard.on_press_key(key, lambda e: self._keys.put(self.on_press), suppress=suppress),
+                keyboard.on_release_key(key, lambda e: self._keys.put(self.on_release), suppress=suppress),
             ]
         self._bound = True
 
@@ -149,6 +156,15 @@ class Engine:
                     pass
             self._hooks = []
         self._bound = False
+
+    def _key_worker(self) -> None:
+        # 攔截按鍵時 hook 會等 callback 回來，所以實際動作放到這條執行緒做
+        while True:
+            action = self._keys.get()
+            try:
+                action()
+            except Exception:
+                log.exception("快捷鍵處理失敗")
 
     def _on_mouse(self, button: str, down: bool) -> None:
         if button == self._mouse_button:
@@ -218,20 +234,37 @@ class Engine:
         except ProviderError as e:
             self._feedback(300)
             self._record(started_at, rec, "", t0, "error")
-            self._emit("error", message=f"辨識失敗：{e}")
+            self.failed = (rec, started_at)
+            self._emit("error", message=f"辨識失敗：{e}", retry=True)
             return
+        self.failed = None
         if not text:
             self._record(started_at, rec, "", t0, "empty")
             self._emit("skipped", reason="沒有辨識到內容")
             return
+        self.last_text = text
         out = self.config["output"]
+        has_field = focus.has_text_focus() if out.get("show_unplaced", True) else None
         insert_text(text, method=out["method"], restore_clipboard=out["restore_clipboard"])
+        if has_field is False:
+            self._emit("unplaced", text=text)
         latency = time.monotonic() - t0
         self._record(started_at, rec, text, t0, "ok")
         data = {"chars": len(text), "seconds": rec.seconds, "latency": latency}
         if self.config["privacy"]["log_text"]:
             data["text"] = text
         self._emit("result", **data)
+
+    def retry(self) -> bool:
+        """重送上一段辨識失敗的錄音。沒有可重試的錄音時回傳 False。"""
+        if self.failed is None or self.pipeline is None:
+            return False
+        rec, started_at = self.failed
+        self.failed = None
+        self.busy += 1
+        self.jobs.put((rec, started_at, time.monotonic()))
+        self._emit_state()
+        return True
 
     def _record(self, started_at: datetime, rec: Recording, text: str, t0: float, status: str) -> None:
         if self.usage is None:

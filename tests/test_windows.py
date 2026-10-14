@@ -1,4 +1,4 @@
-"""在 Windows 上實際安裝滑鼠 hook，用 SendInput 模擬側鍵，確認收得到而且會被攔下。"""
+"""只在 Windows 上跑的測試：滑鼠 hook、UI Automation。"""
 
 import sys
 import threading
@@ -53,3 +53,11 @@ def test_mouse_hook_sees_side_button():
     finally:
         hook.stop()
     assert got == [("x2", True), ("x2", False)]
+
+
+def test_ui_automation_loads():
+    from dictate import focus
+
+    uia, mod = focus._automation()
+    assert uia is not None and hasattr(mod, "IUIAutomationValuePattern")
+    assert focus.has_text_focus() in (True, False, None)

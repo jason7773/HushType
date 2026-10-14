@@ -30,12 +30,15 @@ $init = "dictate\__init__.py"
 (Get-Content $init -Raw) -replace '__version__ = ".*"', "__version__ = `"$Version`"" |
     Set-Content $init -NoNewline -Encoding utf8
 
-# 1. 打包成 dist\dictate\dictate.exe
+# 1. 先產生 UI Automation 的 COM 介面（判斷有沒有輸入框用），再打包成 dist\dictate\dictate.exe
+python -c "import comtypes.client; comtypes.client.GetModule('UIAutomationCore.dll')"
+if ($LASTEXITCODE) { throw "無法產生 UI Automation 介面" }
 python -m PyInstaller --noconfirm --clean --windowed `
     --name dictate `
     --icon assets\dictate.ico `
     --collect-data opencc `
     --hidden-import keyring.backends.Windows `
+    --collect-submodules comtypes.gen `
     --distpath dist --workpath build `
     dictate.pyw
 if ($LASTEXITCODE) { throw "PyInstaller 失敗" }

@@ -30,11 +30,35 @@ HOTKEYS = [
     "right ctrl", "right alt", "right shift", "caps lock", "f8", "f9", "f10", "f12", "scroll lock", "pause",
     "mouse:x1", "mouse:x2", "mouse:middle",
 ]
-STT_MODELS = ["whisper-large-v3-turbo", "whisper-large-v3"]
-CLEANUP_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+# 每個服務的建議模型，第一個是預設；欄位也可以自己輸入其他型號
+STT_MODELS = {
+    "groq": ["whisper-large-v3-turbo", "whisper-large-v3"],
+    "openai": ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "gpt-transcribe", "whisper-1"],
+    "gemini": ["gemini-3.5-flash-lite", "gemini-3.8-flash"],
+    "openai_compatible": [],
+}
+CLEANUP_MODELS = {
+    "groq": ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
+    "openai": ["gpt-5.4-mini", "gpt-6-luna", "gpt-5-mini"],
+    "gemini": ["gemini-3.5-flash-lite", "gemini-3.8-flash"],
+    "openai_compatible": [],
+}
+# 選服務時顯示的資料去向說明
+PROVIDER_NOTES = {
+    "groq": "Groq：API 資料不會拿去訓練模型。",
+    "openai": "OpenAI：API 資料預設不會拿去訓練模型，但會保留最多 30 天供濫用審查。",
+    "gemini": "⚠ Gemini 免費方案的內容可能被 Google 拿去改善產品。機密內容請先在 Google AI Studio 開啟付費方案。",
+    "openai_compatible": "資料會送到你填的網址。填本機網址（127.0.0.1）時完全不出你的電腦。",
+}
 LANGUAGES = [("中文", "zh"), ("英文", "en"), ("自動偵測", "")]
 EFFORTS = [("低（較快）", "low"), ("中", "medium"), ("高", "high"), ("不設定", None)]
-PROVIDERS = [("Groq", "groq"), ("其他 OpenAI 相容服務", "openai_compatible")]
+PROVIDERS = [
+    ("Groq", "groq"),
+    ("OpenAI", "openai"),
+    ("Google Gemini", "gemini"),
+    ("其他 OpenAI 相容服務（含本機）", "openai_compatible"),
+]
+NAMED_KEYS = {"groq": "GROQ_API_KEY", "openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY"}
 
 
 def _combo(items, current) -> QComboBox:
@@ -76,15 +100,16 @@ def _form() -> QFormLayout:
 
 
 def key_env(section: str, provider: str) -> str:
-    """金鑰在認證管理員裡的名稱。Groq 兩個功能共用同一把。"""
-    return "GROQ_API_KEY" if provider == "groq" else f"DICTATE_{section.upper()}_API_KEY"
+    """金鑰在認證管理員裡的名稱。同一家服務的語音辨識和文字整理共用同一把。"""
+    return NAMED_KEYS.get(provider) or f"DICTATE_{section.upper()}_API_KEY"
 
 
 class ServiceForm:
     """一組「服務／網址／金鑰」欄位，語音辨識和文字整理各一組。"""
 
-    def __init__(self, form: QFormLayout, section_name: str, section: dict):
+    def __init__(self, form: QFormLayout, section_name: str, section: dict, models: dict[str, list[str]]):
         self.section_name = section_name
+        self.models = models
         self.provider = _combo(PROVIDERS, section["provider"])
         self.base_url = QLineEdit(section.get("base_url", ""))
         self.base_url.setPlaceholderText("例如 http://127.0.0.1:8080/v1")
@@ -100,11 +125,15 @@ class ServiceForm:
         self._key_widget = QWidget()
         self._key_widget.setLayout(key_row)
         key_row.setContentsMargins(0, 0, 0, 0)
+        self.note = label("", "muted", wrap=True)
         form.addRow("服務", self.provider)
+        form.addRow("", self.note)
         form.addRow("網址", self.base_url)
         form.addRow("API 金鑰", self._key_widget)
+        self.model = _editable_combo(models.get(section["provider"], []), section["model"])
+        form.addRow("模型", self.model)
         self._form = form
-        self.provider.currentIndexChanged.connect(self._sync)
+        self.provider.currentIndexChanged.connect(self._provider_changed)
         self.legacy_key = section.get("api_key", "")
         self.load_key()
         self._sync()
@@ -114,9 +143,22 @@ class ServiceForm:
         self.show_key.setText("隱藏" if on else "顯示")
 
     def _sync(self) -> None:
-        custom = self.provider.currentData() != "groq"
-        self._form.setRowVisible(self.base_url, custom)
+        provider = self.provider.currentData()
+        self._form.setRowVisible(self.base_url, provider == "openai_compatible")
+        self.note.setText(PROVIDER_NOTES.get(provider, ""))
+        self.note.setObjectName("warn" if provider == "gemini" else "muted")
+        self.note.style().unpolish(self.note)
+        self.note.style().polish(self.note)
         self.load_key()
+
+    def _provider_changed(self) -> None:
+        """換服務時，模型清單換成該服務的建議型號。"""
+        choices = self.models.get(self.provider.currentData(), [])
+        current = self.model.currentText()
+        self.model.clear()
+        self.model.addItems(choices)
+        self.model.setCurrentText(current if current in choices or not choices else choices[0])
+        self._sync()
 
     @property
     def env(self) -> str:
@@ -130,7 +172,8 @@ class ServiceForm:
         for k in ("provider", "base_url", "api_key", "api_key_env"):
             section.pop(k, None)
         section["provider"] = self.provider.currentData()
-        if section["provider"] != "groq":
+        section["model"] = self.model.currentText().strip()
+        if section["provider"] == "openai_compatible":
             section["base_url"] = self.base_url.text().strip()
             section["api_key_env"] = self.env
 
@@ -215,6 +258,9 @@ class SettingsPage(QWidget):
         form.addRow("快捷鍵", row)
         self.mode = _combo([("按住說話，放開送出", "hold"), ("按一下開始，再按一下結束", "toggle")], cfg["hotkey"]["mode"])
         form.addRow("操作方式", self.mode)
+        self.suppress = QCheckBox("攔下快捷鍵，不讓其他程式收到（例如 F12 不會再打開開發者工具）")
+        self.suppress.setChecked(cfg["hotkey"].get("suppress", True))
+        form.addRow(self.suppress)
         self.mic = QComboBox()
         self.mic.setMinimumWidth(280)
         self.mic.addItem("系統預設", "")
@@ -234,9 +280,7 @@ class SettingsPage(QWidget):
 
         # 語音辨識
         card, form = self._card(lay, "語音辨識")
-        self.stt_service = ServiceForm(form, "stt", cfg["stt"])
-        self.stt_model = _editable_combo(STT_MODELS, cfg["stt"]["model"])
-        form.addRow("模型", self.stt_model)
+        self.stt_service = ServiceForm(form, "stt", cfg["stt"], STT_MODELS)
         self.language = _combo(LANGUAGES, cfg["stt"].get("language") or "")
         form.addRow("語言", self.language)
 
@@ -245,9 +289,7 @@ class SettingsPage(QWidget):
         self.cleanup_on = QCheckBox("用 AI 去除贅字、加標點、自動分段與條列")
         self.cleanup_on.setChecked(cfg["cleanup"]["enabled"])
         form.addRow(self.cleanup_on)
-        self.cleanup_service = ServiceForm(form, "cleanup", cfg["cleanup"])
-        self.cleanup_model = _editable_combo(CLEANUP_MODELS, cfg["cleanup"]["model"])
-        form.addRow("模型", self.cleanup_model)
+        self.cleanup_service = ServiceForm(form, "cleanup", cfg["cleanup"], CLEANUP_MODELS)
         self.effort = _combo(EFFORTS, cfg["cleanup"].get("extra", {}).get("reasoning_effort"))
         form.addRow("推理強度", self.effort)
         self.prompt = QPlainTextEdit(cfg["cleanup"]["system_prompt"])
@@ -268,6 +310,9 @@ class SettingsPage(QWidget):
         self.traditional = QCheckBox("轉成繁體中文（台灣用語）")
         self.traditional.setChecked(cfg["output"]["convert_to_traditional"])
         form.addRow(self.traditional)
+        self.show_unplaced = QCheckBox("找不到輸入框時，在螢幕下方顯示文字和「複製」按鈕")
+        self.show_unplaced.setChecked(cfg["output"].get("show_unplaced", True))
+        form.addRow(self.show_unplaced)
 
         # 詞彙
         card, form = self._card(lay, "詞彙")
@@ -333,15 +378,19 @@ class SettingsPage(QWidget):
         self.capture_btn.setEnabled(False)
         was_paused = engine.paused
         engine.set_paused(True)
+        engine.unbind()  # 暫時放開目前的快捷鍵，錄製時才收得到
 
         def wait():
             name = ""
             try:
                 name = hotkeys.capture()
             except Exception as e:
-                name = ""
                 self._hotkey.failed.emit(str(e))
             finally:
+                try:
+                    engine.bind()
+                except Exception as e:
+                    self._hotkey.failed.emit(str(e))
                 engine.set_paused(was_paused)
                 self._hotkey.captured.emit(name)
 
@@ -363,15 +412,14 @@ class SettingsPage(QWidget):
         cfg["ui"]["theme"] = self.theme.currentData()
         cfg["hotkey"]["key"] = self.hotkey.currentData() or "right ctrl"
         cfg["hotkey"]["mode"] = self.mode.currentData()
+        cfg["hotkey"]["suppress"] = self.suppress.isChecked()
         cfg["audio"]["device"] = self.mic.currentData()
 
         self.stt_service.write(cfg["stt"])
-        cfg["stt"]["model"] = self.stt_model.currentText().strip()
         cfg["stt"]["language"] = self.language.currentData()
 
         cfg["cleanup"]["enabled"] = self.cleanup_on.isChecked()
         self.cleanup_service.write(cfg["cleanup"])
-        cfg["cleanup"]["model"] = self.cleanup_model.currentText().strip()
         extra = dict(cfg["cleanup"].get("extra", {}))
         extra.pop("reasoning_effort", None)
         if self.effort.currentData():
@@ -382,6 +430,7 @@ class SettingsPage(QWidget):
         cfg["output"]["method"] = self.method.currentData()
         cfg["output"]["restore_clipboard"] = self.restore_clip.isChecked()
         cfg["output"]["convert_to_traditional"] = self.traditional.isChecked()
+        cfg["output"]["show_unplaced"] = self.show_unplaced.isChecked()
 
         cfg["vocabulary"]["terms"] = [t.strip() for t in self.terms.toPlainText().splitlines() if t.strip()]
         cfg["vocabulary"]["replacements"] = parse_replacements(self.replacements.toPlainText())

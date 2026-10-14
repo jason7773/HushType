@@ -32,6 +32,7 @@ from ..config import DEFAULTS, load_config, save_config
 from ..engine import Engine
 from . import theme
 from .overlay import Overlay
+from .result_card import ResultCard
 from .settings_page import SettingsPage
 from .stats_page import StatsPage
 from .status_page import StatusPage, key_label
@@ -112,6 +113,7 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(0)
 
         self.overlay = Overlay(lambda: self.engine.recorder.level)
+        self.card = ResultCard(self.retry_failed)
         self._build_tray()
         self._ready = True
         self.on_event("state", {"state": self.engine.state})
@@ -159,6 +161,8 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("開啟 dictate", lambda: self.show_page(0))
         self.pause_action = menu.addAction("暫停", lambda: self.set_paused(not self.engine.paused))
+        self.copy_action = menu.addAction("複製上一段文字", self.copy_last)
+        self.retry_action = menu.addAction("重試失敗的錄音", self.retry_failed)
         menu.addAction("設定", lambda: self.show_page(1))
         menu.addAction("使用統計", lambda: self.show_page(2))
         menu.addSeparator()
@@ -183,6 +187,10 @@ class MainWindow(QMainWindow):
             self.tray.setToolTip(f"dictate：{name}")
             self.tray_state.setText(f"{name}・{key_label(self.engine.config['hotkey']['key'])}")
             self.pause_action.setText("恢復" if self.engine.paused else "暫停")
+            self.copy_action.setEnabled(bool(self.engine.last_text))
+            self.retry_action.setEnabled(self.engine.failed is not None)
+            if state == "recording":
+                self.card.dismiss()
             self.status_page.set_state(state)
             self._update_overlay(state)
         elif kind == "result":
@@ -193,11 +201,16 @@ class MainWindow(QMainWindow):
                 self.status_page.refresh()
             elif self.pages.currentIndex() == 2:
                 self.stats_page.refresh()
+        elif kind == "unplaced":
+            self.card.show_text(data["text"])
         elif kind == "skipped":
             self.status_page.add_activity(f"略過：{data['reason']}")
         elif kind == "error":
             self.status_page.add_activity(data["message"], ok=False)
-            if self.engine.config["ui"]["overlay"]:
+            if data.get("retry"):
+                self.overlay.dismiss()
+                self.card.show_failure(data["message"].split("：", 1)[-1][:120])
+            elif self.engine.config["ui"]["overlay"]:
                 self.overlay.show_error(data["message"].split("：")[0][:8])
             if not self.isVisible() and time.monotonic() - self._last_error_notice > 15:
                 self._last_error_notice = time.monotonic()
@@ -212,6 +225,14 @@ class MainWindow(QMainWindow):
             self.overlay.show_processing()
         elif self.overlay.mode in ("recording", "processing"):
             self.overlay.dismiss()
+
+    def copy_last(self) -> None:
+        if self.engine.last_text:
+            QApplication.clipboard().setText(self.engine.last_text)
+
+    def retry_failed(self) -> None:
+        if not self.engine.retry():
+            self.status_page.add_activity("沒有可以重試的錄音", ok=False)
 
     def set_paused(self, paused: bool) -> None:
         self.engine.set_paused(paused)
@@ -261,6 +282,7 @@ class MainWindow(QMainWindow):
             pass
         self.tray.hide()
         self.overlay.hide()
+        self.card.hide()
         QApplication.quit()
 
 

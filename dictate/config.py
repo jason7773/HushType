@@ -24,6 +24,7 @@ DEFAULTS: dict = {
     "hotkey": {
         "key": "right ctrl",
         "mode": "hold",  # hold：按住說話；toggle：按一下開始、再按一下結束
+        "suppress": True,  # 攔下快捷鍵，不讓其他程式收到（避免 F12 同時打開開發者工具）
     },
     "audio": {
         "sample_rate": 16000,
@@ -48,6 +49,7 @@ DEFAULTS: dict = {
         "method": "paste",  # paste：剪貼簿貼上（快、相容性好）；type：模擬逐字打字
         "restore_clipboard": True,
         "convert_to_traditional": True,
+        "show_unplaced": True,  # 找不到輸入框時，在螢幕下方顯示文字與「複製」按鈕
     },
     "vocabulary": {
         "terms": [],  # 專有名詞，會提示給辨識和整理模型

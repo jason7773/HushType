@@ -166,3 +166,34 @@ def test_wheel_over_dropdown_does_not_change_value(window):
         QtWidgets.QApplication.sendEvent(box, event)
         after = box.currentIndex() if hasattr(box, "currentIndex") else box.value()
         assert after == before
+
+
+def test_unplaced_text_and_failure_card(window):
+    window.on_event("unplaced", {"text": "這是一段沒有地方貼的文字"})
+    assert window.card.mode == "text" and window.card.isVisible()
+    window.card._act()
+    assert QtWidgets.QApplication.clipboard().text() == "這是一段沒有地方貼的文字"
+
+    retried = []
+    window.engine.retry = lambda: retried.append(True) or True
+    window.on_event("error", {"message": "辨識失敗：服務回應 429", "retry": True})
+    assert window.card.mode == "error" and window.card.action.text() == "重試"
+    window.card._act()
+    assert retried == [True]
+
+
+def test_switching_provider_suggests_its_models_and_key(window):
+    from dictate.config import load_config
+
+    form = window.settings_page.stt_service
+    form.provider.setCurrentIndex(form.provider.findData("gemini"))
+    assert form.model.currentText() == "gemini-3.5-flash-lite"
+    assert form.env == "GEMINI_API_KEY"
+    assert "Gemini" in form.note.text()
+    form.key.setText("gm-key")
+    form.key.setModified(True)
+    window.settings_page.save()
+    saved = load_config(window.config_path)
+    assert saved["stt"]["provider"] == "gemini" and saved["stt"]["model"] == "gemini-3.5-flash-lite"
+    assert "base_url" not in saved["stt"]
+    assert window.store["GEMINI_API_KEY"] == "gm-key"

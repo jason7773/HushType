@@ -1,5 +1,8 @@
+import copy
 import io
+import time
 import wave
+from datetime import datetime
 
 import numpy as np
 import pytest
@@ -11,6 +14,7 @@ from dictate.providers import (
     ProviderError,
     SpeechToText,
     TextCleaner,
+    create_cleaner,
     create_stt,
     register_stt,
 )
@@ -143,7 +147,7 @@ def test_config_merges_defaults(tmp_path):
     f = tmp_path / "c.toml"
     f.write_text('[cleanup]\nenabled = false\n[hotkey]\nkey = "f9"\n', encoding="utf-8")
     cfg = load_config(f)
-    assert cfg["hotkey"] == {"key": "f9", "mode": "hold"}
+    assert cfg["hotkey"] == {"key": "f9", "mode": "hold", "suppress": True}
     assert cfg["cleanup"]["enabled"] is False
     assert cfg["cleanup"]["model"] == DEFAULTS["cleanup"]["model"]
 
@@ -252,3 +256,75 @@ def test_engine_routes_mouse_button_events():
     engine._on_mouse("x2", True)
     engine._on_mouse("x2", False)
     assert calls == ["down", "up"]
+
+
+def test_openai_and_gemini_providers(monkeypatch):
+    import base64
+
+    import dictate.providers.openai_compat as oc
+
+    sent = {}
+
+    def fake_post(url, api_key, timeout, **kw):
+        sent["url"], sent["key"], sent["kw"] = url, api_key, kw
+        return {"choices": [{"message": {"content": "你好"}}], "text": "你好"}
+
+    monkeypatch.setattr(oc, "_post", fake_post)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-test")
+    monkeypatch.setattr("dictate.keystore.get_secret", lambda name: None)
+
+    cleaner = create_cleaner({"provider": "openai", "model": "gpt-5.4-mini"})
+    assert cleaner.clean("嗯你好", system_prompt="p") == "你好"
+    assert sent["url"] == "https://api.openai.com/v1/chat/completions" and sent["key"] == "sk-test"
+    assert "temperature" not in sent["kw"]["json"]  # GPT-5 系列不接受自訂 temperature
+
+    stt = create_stt({"provider": "openai", "model": "gpt-transcribe", "language": "zh"})
+    stt.transcribe(b"RIFF")
+    assert "language" not in sent["kw"]["data"]
+
+    stt = create_stt({"provider": "gemini", "model": "gemini-3.5-flash-lite", "language": "zh"})
+    assert stt.transcribe(b"RIFFdata", prompt="詞彙：Groq") == "你好"
+    assert sent["url"].startswith("https://generativelanguage.googleapis.com/") and sent["key"] == "gm-test"
+    parts = sent["kw"]["json"]["messages"][0]["content"]
+    assert "Groq" in parts[0]["text"]
+    assert base64.b64decode(parts[1]["input_audio"]["data"]) == b"RIFFdata"
+
+
+def test_failed_recording_can_be_retried(monkeypatch):
+    from dictate import engine as engine_mod
+    from dictate.audio import Recording
+
+    events = []
+    cfg = copy.deepcopy(DEFAULTS)
+    cfg["stats"]["enabled"] = False
+    cfg["cleanup"]["enabled"] = False
+    monkeypatch.setenv("GROQ_API_KEY", "gsk")
+    monkeypatch.setattr("dictate.keystore.get_secret", lambda name: None)
+    eng = engine_mod.Engine(cfg, lambda kind, data: events.append((kind, data)))
+
+    answers = iter([ProviderError("429"), "你好"])
+
+    def run(wav):
+        a = next(answers)
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+    monkeypatch.setattr(eng.pipeline, "run", run)
+    pasted = []
+    monkeypatch.setattr(engine_mod, "insert_text", lambda text, **kw: pasted.append(text))
+    monkeypatch.setattr(engine_mod.focus, "has_text_focus", lambda: False)
+
+    rec = Recording(wav=b"", seconds=2.0, rms=1000)
+    eng._process(rec, datetime.now(), time.monotonic())
+    assert events[-1][0] == "error" and events[-1][1]["retry"] is True
+    assert eng.failed is not None
+
+    assert eng.retry() is True  # 背景 worker 會重新處理
+    deadline = time.monotonic() + 3
+    while not pasted and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert pasted == ["你好"]
+    assert ("unplaced", {"text": "你好"}) in events
+    assert eng.failed is None and eng.last_text == "你好"
