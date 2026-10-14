@@ -59,6 +59,10 @@ DEFAULTS: dict = {
     "feedback": {
         "beep": True,
     },
+    "ui": {
+        "theme": "system",  # system：跟隨 Windows；light；dark
+        "overlay": True,  # 錄音時在螢幕下方顯示小視窗
+    },
     "stats": {
         "enabled": True,  # 記錄使用時間與字數（不含內容），供儀表板使用
         "path": "",  # 留空則存在設定檔資料夾的 usage.db

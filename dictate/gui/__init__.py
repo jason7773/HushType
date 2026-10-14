@@ -9,13 +9,15 @@ import time
 import tomllib
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QLabel,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -29,6 +31,7 @@ from .. import __version__, autostart, keystore
 from ..config import DEFAULTS, load_config, save_config
 from ..engine import Engine
 from . import theme
+from .overlay import Overlay
 from .settings_page import SettingsPage
 from .stats_page import StatsPage
 from .status_page import StatusPage, key_label
@@ -73,11 +76,23 @@ class MainWindow(QMainWindow):
         side_lay = QVBoxLayout(side)
         side_lay.setContentsMargins(0, 0, 0, 0)
         side_lay.setSpacing(0)
-        side_lay.addWidget(label("dictate", "brand"))
+        brand = QHBoxLayout()
+        brand.setContentsMargins(20, 20, 20, 10)
+        brand.setSpacing(10)
+        logo = QLabel()
+        pm = theme.make_icon_pixmap(theme.STATES["idle"][1], 56)
+        pm.setDevicePixelRatio(2)
+        logo.setPixmap(pm)
+        brand.addWidget(logo)
+        brand.addWidget(label("dictate", "brand"), 1)
+        side_lay.addLayout(brand)
         self.nav = QListWidget()
         self.nav.setObjectName("sidebar")
-        self.nav.addItems(["狀態", "設定", "統計"])
+        self.nav.setIconSize(QSize(20, 20))
+        for text in ("狀態", "設定", "統計"):
+            self.nav.addItem(QListWidgetItem(text))
         self.nav.setFocusPolicy(Qt.NoFocus)
+        self.refresh_nav_icons()
         side_lay.addWidget(self.nav, 1)
         version = label(f"版本 {__version__}", "muted")
         version.setContentsMargins(22, 0, 0, 14)
@@ -96,6 +111,7 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._show_page)
         self.nav.setCurrentRow(0)
 
+        self.overlay = Overlay(lambda: self.engine.recorder.level)
         self._build_tray()
         self._ready = True
         self.on_event("state", {"state": self.engine.state})
@@ -105,6 +121,15 @@ class MainWindow(QMainWindow):
             self.status_page.add_activity(f"無法註冊快捷鍵：{e}", ok=False)
 
     # ---- 頁面 ----
+
+    def refresh_nav_icons(self) -> None:
+        for i, kind in enumerate(("status", "settings", "stats")):
+            self.nav.item(i).setIcon(theme.nav_icon(kind, theme.current["text_secondary"]))
+
+    def apply_theme(self) -> None:
+        theme.apply(QApplication.instance(), self.engine.config["ui"]["theme"])
+        self.refresh_nav_icons()
+        self.status_page.set_state(self.engine.state)
 
     def _show_page(self, i: int) -> None:
         self.pages.setCurrentIndex(i)
@@ -159,6 +184,7 @@ class MainWindow(QMainWindow):
             self.tray_state.setText(f"{name}・{key_label(self.engine.config['hotkey']['key'])}")
             self.pause_action.setText("恢復" if self.engine.paused else "暫停")
             self.status_page.set_state(state)
+            self._update_overlay(state)
         elif kind == "result":
             text = data.get("text")
             what = f"「{text}」" if text else f"{data['chars']} 字"
@@ -171,9 +197,21 @@ class MainWindow(QMainWindow):
             self.status_page.add_activity(f"略過：{data['reason']}")
         elif kind == "error":
             self.status_page.add_activity(data["message"], ok=False)
+            if self.engine.config["ui"]["overlay"]:
+                self.overlay.show_error(data["message"].split("：")[0][:8])
             if not self.isVisible() and time.monotonic() - self._last_error_notice > 15:
                 self._last_error_notice = time.monotonic()
                 self.tray.showMessage("dictate", data["message"], QSystemTrayIcon.Warning, 5000)
+
+    def _update_overlay(self, state: str) -> None:
+        if not self.engine.config["ui"]["overlay"]:
+            self.overlay.dismiss()
+        elif state == "recording":
+            self.overlay.show_recording()
+        elif state == "processing":
+            self.overlay.show_processing()
+        elif self.overlay.mode in ("recording", "processing"):
+            self.overlay.dismiss()
 
     def set_paused(self, paused: bool) -> None:
         self.engine.set_paused(paused)
@@ -199,6 +237,7 @@ class MainWindow(QMainWindow):
             self.engine.apply_config(config)
         except Exception as e:
             return f"套用設定失敗：{e}"
+        self.apply_theme()
         self.status_page.refresh()
         return self.engine.setup_error or None
 
@@ -221,6 +260,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.tray.hide()
+        self.overlay.hide()
         QApplication.quit()
 
 
@@ -246,7 +286,6 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
     font.setFamilies(["Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC"])
     font.setPointSizeF(10)
     app.setFont(font)
-    theme.apply(app)
 
     if _notify_running_instance():
         return 0
@@ -264,6 +303,7 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
         )
         config = copy.deepcopy(DEFAULTS)
 
+    theme.apply(app, config["ui"]["theme"])
     window = MainWindow(config_path, config)
 
     def on_connection():
@@ -271,7 +311,7 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
         conn.readyRead.connect(lambda: (conn.readAll(), window.bring_to_front()))
 
     server.newConnection.connect(on_connection)
-    QGuiApplication.styleHints().colorSchemeChanged.connect(lambda _: (theme.apply(app), window.update()))
+    QGuiApplication.styleHints().colorSchemeChanged.connect(lambda _: window.apply_theme())
 
     if minimized:
         window.tray.showMessage("dictate 已啟動", f"按住「{key_label(config['hotkey']['key'])}」說話。", QSystemTrayIcon.Information, 3000)

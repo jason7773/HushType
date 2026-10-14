@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QProgressBar,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 from .. import autostart
 from ..stats import load_summary
 from . import theme
-from .widgets import Card, StatTile, StateDot, label
+from .widgets import Card, StatTile, label
 
 HINTS = {
     "idle": "按住「{key}」說話，放開後文字會出現在游標位置",
@@ -59,8 +60,9 @@ class StatusPage(QScrollArea):
         hero = Card()
         row = QHBoxLayout()
         row.setSpacing(14)
-        self.dot = StateDot(20)
-        row.addWidget(self.dot, 0, Qt.AlignTop)
+        self.state_icon = QLabel()
+        self.state_icon.setFixedSize(48, 48)
+        row.addWidget(self.state_icon, 0, Qt.AlignTop)
         texts = QVBoxLayout()
         texts.setSpacing(4)
         self.state_title = label("", "stateTitle")
@@ -127,7 +129,9 @@ class StatusPage(QScrollArea):
     def set_state(self, state: str) -> None:
         engine = self.window.engine
         name, color = theme.STATES[state]
-        self.dot.set_color(color)
+        pm = theme.make_icon_pixmap(color, 96)
+        pm.setDevicePixelRatio(2)
+        self.state_icon.setPixmap(pm)
         self.state_title.setText(name)
         self.state_hint.setText(
             HINTS[state].format(key=key_label(engine.config["hotkey"]["key"]), error=engine.setup_error)

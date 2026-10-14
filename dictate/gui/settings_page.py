@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import autostart, keystore
 from ..config import DEFAULT_CLEANUP_PROMPT
+from . import theme
 from .widgets import Card, label
 
 HOTKEYS = ["right ctrl", "right alt", "right shift", "caps lock", "f8", "f9", "f10", "f12", "scroll lock", "pause"]
@@ -175,6 +176,11 @@ class SettingsPage(QWidget):
         self.beep = QCheckBox("開始與結束錄音時發出提示音")
         self.beep.setChecked(cfg["feedback"]["beep"])
         form.addRow(self.beep)
+        self.overlay = QCheckBox("錄音與轉譯時，在螢幕下方顯示小視窗")
+        self.overlay.setChecked(cfg["ui"]["overlay"])
+        form.addRow(self.overlay)
+        self.theme = _combo(theme.THEMES, cfg["ui"]["theme"])
+        form.addRow("外觀", self.theme)
 
         # 快捷鍵與麥克風
         card, form = self._card(lay, "快捷鍵與麥克風")
@@ -322,6 +328,8 @@ class SettingsPage(QWidget):
     def collect(self) -> dict:
         cfg = copy.deepcopy(self.window.engine.config)
         cfg["feedback"]["beep"] = self.beep.isChecked()
+        cfg["ui"]["overlay"] = self.overlay.isChecked()
+        cfg["ui"]["theme"] = self.theme.currentData()
         cfg["hotkey"]["key"] = self.hotkey.currentText().strip().lower() or "right ctrl"
         cfg["hotkey"]["mode"] = self.mode.currentData()
         cfg["audio"]["device"] = self.mic.currentData()

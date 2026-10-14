@@ -100,3 +100,38 @@ def test_parse_replacements():
     from dictate.gui.settings_page import parse_replacements
 
     assert parse_replacements("a → b\nc->d\ne = f\n無分隔\n → x") == {"a": "b", "c": "d", "e": "f"}
+
+
+def test_overlay_follows_engine_state(window):
+    ov = window.overlay
+    window.on_event("state", {"state": "recording"})
+    assert ov.mode == "recording" and ov.isVisible()
+    window.on_event("state", {"state": "processing"})
+    assert ov.mode == "processing"
+    window.on_event("state", {"state": "idle"})
+    assert ov.mode == "hidden"
+
+
+def test_overlay_shows_error_and_can_be_disabled(window):
+    window.on_event("error", {"message": "辨識失敗：服務回應 401"})
+    assert window.overlay.mode == "error" and window.overlay.message == "辨識失敗"
+    window.on_event("state", {"state": "idle"})  # 錯誤訊息留著，等計時器自己消失
+    assert window.overlay.mode == "error"
+
+    window.engine.config["ui"]["overlay"] = False
+    window.overlay.dismiss()
+    window.on_event("state", {"state": "recording"})
+    assert window.overlay.mode == "hidden"
+
+
+def test_theme_setting_saved_and_applied(window):
+    from dictate.config import load_config
+    from dictate.gui import theme
+
+    page = window.settings_page
+    page.theme.setCurrentIndex(page.theme.findData("dark"))
+    page.stt_service.key.setText("gsk_x")
+    page.stt_service.key.setModified(True)
+    page.save()
+    assert load_config(window.config_path)["ui"]["theme"] == "dark"
+    assert theme.current["bg"] == theme.DARK["bg"]
