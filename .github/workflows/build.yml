@@ -1,9 +1,10 @@
 name: build
 
+# 推到 main 時，若 dictate/__init__.py 的版本號還沒有對應的 Release，就自動建立 Release；
+# 否則只打包成 Actions artifact。
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -32,10 +33,19 @@ jobs:
       - name: Version
         id: version
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.Substring(1) }
-          else { $v = (Select-String -Path dictate/__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value + "-dev.$env:GITHUB_RUN_NUMBER" }
+          $v = (Select-String -Path dictate/__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value
+          $release = "false"
+          if ($env:GITHUB_EVENT_NAME -eq "push") {
+            gh release view "v$v" --repo $env:GITHUB_REPOSITORY *> $null
+            if ($LASTEXITCODE -ne 0) { $release = "true" }
+          }
+          if ($release -eq "false") { $v = "$v-dev.$env:GITHUB_RUN_NUMBER" }
+          $global:LASTEXITCODE = 0
           "value=$v" >> $env:GITHUB_OUTPUT
+          "release=$release" >> $env:GITHUB_OUTPUT
 
       - name: Build installer
         shell: pwsh
@@ -50,8 +60,11 @@ jobs:
           path: dist/dictate-setup-*.exe
 
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
+          name: dictate ${{ steps.version.outputs.value }}
           files: dist/dictate-setup-*.exe
           generate_release_notes: true

@@ -35,14 +35,9 @@ Windows 語音輸入工具：在任何程式裡按住快捷鍵說話，放開後
 
 ## 發佈新版
 
-推送 `v` 開頭的 tag 就會自動打包並建立 Release：
+把 `dictate/__init__.py` 的 `__version__` 改成新版本號並推到 `main`，GitHub 就會自動打包、建立 `v版本號` 的 Release。
 
-```
-git tag v0.2.1
-git push origin v0.2.1
-```
-
-推到 `main` 的每個 commit 也會打包，安裝檔放在 Actions 的 Artifacts。
+版本號沒變的 commit 也會打包，安裝檔放在 Actions 的 Artifacts（版本號加上 `-dev.N`）。
 
 ## 開發
 
