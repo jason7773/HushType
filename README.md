@@ -83,3 +83,7 @@ class AzureSTT(SpeechToText):
 ```
 
 再到 `dictate/providers/__init__.py` 匯入它。文字整理服務同理，用 `TextCleaner` 與 `@register_cleaner`。
+
+## 作者
+
+[@jason7773](https://github.com/jason7773)（抹茶），與 Claude 協作開發。
