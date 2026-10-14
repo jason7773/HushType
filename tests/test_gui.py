@@ -21,6 +21,12 @@ def window(tmp_path, monkeypatch):
     monkeypatch.setattr(dictate.engine.Engine, "bind", lambda self: None)
     monkeypatch.setattr(dictate.engine.Engine, "unbind", lambda self: None)
     monkeypatch.setattr(autostart, "set_enabled", lambda on: None)
+    import dictate.updater as updater
+
+    def no_network(*a, **kw):
+        raise updater.UpdateError("測試中不連網")
+
+    monkeypatch.setattr(updater, "latest_release", no_network)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("APPDATA", str(tmp_path))
 
@@ -197,3 +203,29 @@ def test_switching_provider_suggests_its_models_and_key(window):
     assert saved["stt"]["provider"] == "gemini" and saved["stt"]["model"] == "gemini-3.5-flash-lite"
     assert "base_url" not in saved["stt"]
     assert window.store["GEMINI_API_KEY"] == "gm-key"
+
+
+def test_copy_last_result_from_activity(window):
+    window.on_event("result", {"chars": 4, "seconds": 2.0, "latency": 0.8, "output": "第一段話"})
+    window.engine.last_text = "第二段話"
+    window.on_event("result", {"chars": 4, "seconds": 2.0, "latency": 0.8, "output": "第二段話"})
+    page = window.status_page
+    assert "第二段話" not in page.activity.item(0).text()  # 沒開 log_text 時不顯示內容
+    page.copy_last()
+    assert QtWidgets.QApplication.clipboard().text() == "第二段話"
+    page._copy_item(page.activity.item(1))
+    assert QtWidgets.QApplication.clipboard().text() == "第一段話"
+
+
+def test_update_banner_and_install(window, monkeypatch):
+    from dictate import updater
+
+    rel = updater.Release(version="9.9.9", url="https://example/x.exe", size=1, sha256="", page="")
+    window.updates.release = rel
+    window._update_checked(rel, "有新版 9.9.9")
+    assert not window.status_page.update_card.isHidden()
+    assert window.update_action.isVisible()
+
+    monkeypatch.setattr(updater, "can_self_update", lambda: False)
+    window.start_update()
+    assert "開發版" in window.status_page.update_text.text()

@@ -328,3 +328,64 @@ def test_failed_recording_can_be_retried(monkeypatch):
     assert pasted == ["你好"]
     assert ("unplaced", {"text": "你好"}) in events
     assert eng.failed is None and eng.last_text == "你好"
+
+
+def test_updater_versions_and_release(monkeypatch, tmp_path):
+    import hashlib
+
+    from dictate import updater
+
+    assert updater.is_newer("0.10.0", "0.9.9")
+    assert not updater.is_newer("v0.4.0", "0.4.0")
+    assert updater.parse_version("0.4.1-dev.7") == (0, 4, 1)
+
+    payload = b"installer-bytes"
+
+    class Resp:
+        def __init__(self, status=200, data=None, body=b""):
+            self.status_code, self._data, self._body = status, data, body
+            self.headers = {"Content-Length": str(len(body))}
+
+        def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, n):
+            yield self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    release_json = {
+        "tag_name": "v0.5.0",
+        "html_url": "https://github.com/jason7773/dictate/releases/tag/v0.5.0",
+        "assets": [
+            {"name": "notes.txt", "browser_download_url": "x"},
+            {
+                "name": "dictate-setup-0.5.0.exe",
+                "browser_download_url": "https://github.com/dl/dictate-setup-0.5.0.exe",
+                "size": len(payload),
+                "digest": "sha256:" + hashlib.sha256(payload).hexdigest(),
+            },
+        ],
+    }
+
+    def fake_get(url, stream=False, **kw):
+        return Resp(body=payload) if stream else Resp(data=release_json)
+
+    monkeypatch.setattr(updater.requests, "get", fake_get)
+    monkeypatch.setattr(updater.tempfile, "gettempdir", lambda: str(tmp_path))
+    rel = updater.latest_release()
+    assert rel.version == "0.5.0" and rel.url.endswith("0.5.0.exe")
+    path = updater.download(rel)
+    assert path.read_bytes() == payload
+
+    rel.sha256 = "0" * 64
+    with pytest.raises(updater.UpdateError):
+        updater.download(rel)
+    assert not path.exists()

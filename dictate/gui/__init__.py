@@ -9,7 +9,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
@@ -36,6 +36,7 @@ from .result_card import ResultCard
 from .settings_page import SettingsPage
 from .stats_page import StatsPage
 from .status_page import StatusPage, key_label
+from .update import UpdateController
 from .widgets import label
 
 log = logging.getLogger(__name__)
@@ -114,6 +115,12 @@ class MainWindow(QMainWindow):
 
         self.overlay = Overlay(lambda: self.engine.recorder.level)
         self.card = ResultCard(self.retry_failed)
+        self.updates = UpdateController(self)
+        self.updates.checked.connect(self._update_checked)
+        self.updates.progress.connect(lambda pct: self.status_page.show_update(f"正在下載新版… {pct}%", busy=True))
+        self.updates.failed.connect(self._update_failed)
+        self.updates.installing.connect(self._update_installing)
+        self._update_notified = False
         self._build_tray()
         self._ready = True
         self.on_event("state", {"state": self.engine.state})
@@ -121,6 +128,8 @@ class MainWindow(QMainWindow):
             self.engine.bind()
         except Exception as e:  # 例如沒有權限監聽鍵盤
             self.status_page.add_activity(f"無法註冊快捷鍵：{e}", ok=False)
+        if config["ui"].get("check_updates", True):
+            QTimer.singleShot(4000, self.updates.check)
 
     # ---- 頁面 ----
 
@@ -163,6 +172,8 @@ class MainWindow(QMainWindow):
         self.pause_action = menu.addAction("暫停", lambda: self.set_paused(not self.engine.paused))
         self.copy_action = menu.addAction("複製上一段文字", self.copy_last)
         self.retry_action = menu.addAction("重試失敗的錄音", self.retry_failed)
+        self.update_action = menu.addAction("更新並重新啟動", self.start_update)
+        self.update_action.setVisible(False)
         menu.addAction("設定", lambda: self.show_page(1))
         menu.addAction("使用統計", lambda: self.show_page(2))
         menu.addSeparator()
@@ -196,7 +207,9 @@ class MainWindow(QMainWindow):
         elif kind == "result":
             text = data.get("text")
             what = f"「{text}」" if text else f"{data['chars']} 字"
-            self.status_page.add_activity(f"已輸入 {what}（說 {data['seconds']:.0f} 秒，等 {data['latency']:.1f} 秒）")
+            self.status_page.add_activity(
+                f"已輸入 {what}（說 {data['seconds']:.0f} 秒，等 {data['latency']:.1f} 秒）", output=data.get("output", "")
+            )
             if self.pages.currentIndex() == 0:
                 self.status_page.refresh()
             elif self.pages.currentIndex() == 2:
@@ -233,6 +246,37 @@ class MainWindow(QMainWindow):
     def retry_failed(self) -> None:
         if not self.engine.retry():
             self.status_page.add_activity("沒有可以重試的錄音", ok=False)
+
+    # ---- 更新 ----
+
+    def check_updates(self) -> None:
+        self.updates.check()
+
+    def _update_checked(self, release, message: str) -> None:
+        self.settings_page.set_update_note(message)
+        if release is None:
+            return
+        self.status_page.show_update(f"有新版 {release.version} 可以更新（目前 {__version__}）。")
+        self.update_action.setText(f"更新到 {release.version} 並重新啟動")
+        self.update_action.setVisible(True)
+        if not self.isVisible() and not self._update_notified:
+            self._update_notified = True
+            self.tray.showMessage("dictate 有新版", f"版本 {release.version}，打開 dictate 按「更新並重新啟動」。", QSystemTrayIcon.Information, 5000)
+
+    def start_update(self) -> None:
+        if self.engine.recorder.recording or self.engine.busy:
+            self.status_page.show_update("正在錄音或處理中，完成後再按一次更新。")
+            return
+        self.status_page.show_update("正在下載新版…", busy=True)
+        self.updates.install()
+
+    def _update_failed(self, message: str) -> None:
+        self.status_page.show_update(f"更新失敗：{message}")
+        self.settings_page.set_update_note(f"更新失敗：{message}")
+
+    def _update_installing(self) -> None:
+        # 安裝程式會在背景安裝，裝完自動重新開啟
+        self.quit()
 
     def set_paused(self, paused: bool) -> None:
         self.engine.set_paused(paused)

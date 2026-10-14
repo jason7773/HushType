@@ -2,7 +2,8 @@
 
 引擎透過 listener(kind, data) 回報事件，不直接印出或顯示任何東西：
 - "state"    {"state": idle / recording / processing / paused / setup}
-- "result"   {"chars", "seconds", "latency", "text"（只有開啟 log_text 才有）}
+- "result"   {"chars", "seconds", "latency", "output"（輸出的文字，供「複製」用，只在記憶體）,
+              "text"（只有開啟 log_text 才有，表示可以顯示在畫面上）}
 - "unplaced" {"text"}：貼上時找不到輸入框，介面應顯示文字讓使用者複製
 - "skipped"  {"reason"}
 - "error"    {"message", "retry"（True 表示錄音還留著，可以呼叫 retry() 重送）}
@@ -250,7 +251,7 @@ class Engine:
             self._emit("unplaced", text=text)
         latency = time.monotonic() - t0
         self._record(started_at, rec, text, t0, "ok")
-        data = {"chars": len(text), "seconds": rec.seconds, "latency": latency}
+        data = {"chars": len(text), "seconds": rec.seconds, "latency": latency, "output": text}
         if self.config["privacy"]["log_text"]:
             data["text"] = text
         self._emit("result", **data)

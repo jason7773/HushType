@@ -64,6 +64,7 @@ DEFAULTS: dict = {
     "ui": {
         "theme": "system",  # system：跟隨 Windows；light；dark
         "overlay": True,  # 錄音時在螢幕下方顯示小視窗
+        "check_updates": True,  # 啟動時檢查 GitHub 上有沒有新版
     },
     "stats": {
         "enabled": True,  # 記錄使用時間與字數（不含內容），供儀表板使用

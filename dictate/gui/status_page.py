@@ -7,11 +7,13 @@ from datetime import datetime
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -49,6 +51,20 @@ class StatusPage(QScrollArea):
         lay.setContentsMargins(28, 24, 28, 28)
         lay.setSpacing(16)
         lay.addWidget(label("狀態", "h1"))
+
+        # 有新版時才出現
+        self.update_card = Card()
+        self.update_card.setObjectName("updateCard")
+        urow = QHBoxLayout()
+        self.update_text = label("", wrap=True)
+        urow.addWidget(self.update_text, 1)
+        self.update_btn = QPushButton("更新並重新啟動")
+        self.update_btn.setObjectName("primary")
+        self.update_btn.clicked.connect(lambda: window.start_update())
+        urow.addWidget(self.update_btn, 0, Qt.AlignVCenter)
+        self.update_card.body.addLayout(urow)
+        self.update_card.hide()
+        lay.addWidget(self.update_card)
 
         # 目前狀態
         hero = Card()
@@ -106,7 +122,19 @@ class StatusPage(QScrollArea):
         self.activity.setObjectName("activity")
         self.activity.setMinimumHeight(160)
         self.activity.setFocusPolicy(Qt.NoFocus)
+        self.activity.setToolTip("點兩下或按右鍵可以複製那一段文字")
+        self.activity.itemDoubleClicked.connect(self._copy_item)
+        self.activity.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.activity.customContextMenuRequested.connect(self._activity_menu)
         act.body.addWidget(self.activity)
+        copy_row = QHBoxLayout()
+        self.copy_note = label("", "muted")
+        copy_row.addWidget(self.copy_note, 1)
+        self.copy_btn = QPushButton("複製上一次結果")
+        self.copy_btn.setEnabled(False)
+        self.copy_btn.clicked.connect(self.copy_last)
+        copy_row.addWidget(self.copy_btn)
+        act.body.addLayout(copy_row)
         self.empty_note = label("還沒有活動。按住快捷鍵說話試試看。", "muted")
         act.body.addWidget(self.empty_note)
         lay.addWidget(act)
@@ -178,6 +206,7 @@ class StatusPage(QScrollArea):
         while self.grid.count():
             w = self.grid.takeAt(0).widget()
             if w:
+                w.hide()
                 w.deleteLater()
         for i, (name, text, ok) in enumerate(rows):
             self.grid.addWidget(label(name, "secondary"), i, 0)
@@ -187,12 +216,49 @@ class StatusPage(QScrollArea):
                 value.setText(("✓ " if ok else "✗ ") + text)
             self.grid.addWidget(value, i, 1)
 
-    def add_activity(self, text: str, ok: bool = True) -> None:
+    def add_activity(self, text: str, ok: bool = True, output: str = "") -> None:
+        """output：這次輸出的完整文字，只放在記憶體裡供複製，不一定顯示。"""
         mark = "" if ok else "⚠ "
-        self.activity.insertItem(0, QListWidgetItem(f"{datetime.now():%H:%M:%S}　{mark}{text}"))
+        item = QListWidgetItem(f"{datetime.now():%H:%M:%S}　{mark}{text}")
+        if output:
+            item.setData(Qt.UserRole, output)
+            self.copy_btn.setEnabled(True)
+        self.activity.insertItem(0, item)
         while self.activity.count() > 50:
             self.activity.takeItem(self.activity.count() - 1)
         self.empty_note.hide()
+
+    # ---- 複製 ----
+
+    def copy_last(self) -> None:
+        text = self.window.engine.last_text
+        if text:
+            QApplication.clipboard().setText(text)
+            self.copy_note.setText(f"已複製 {len(text)} 字")
+            QTimer.singleShot(3000, lambda: self.copy_note.setText(""))
+
+    def _copy_item(self, item: QListWidgetItem) -> None:
+        text = item.data(Qt.UserRole)
+        if text:
+            QApplication.clipboard().setText(text)
+            self.copy_note.setText(f"已複製 {len(text)} 字")
+            QTimer.singleShot(3000, lambda: self.copy_note.setText(""))
+
+    def _activity_menu(self, pos) -> None:
+        item = self.activity.itemAt(pos)
+        if item is None or not item.data(Qt.UserRole):
+            return
+        menu = QMenu(self)
+        menu.addAction("複製這段文字", lambda: self._copy_item(item))
+        menu.exec(self.activity.viewport().mapToGlobal(pos))
+
+    # ---- 更新 ----
+
+    def show_update(self, text: str | None, busy: bool = False) -> None:
+        self.update_card.setVisible(text is not None)
+        if text is not None:
+            self.update_text.setText(text)
+            self.update_btn.setEnabled(not busy)
 
     # ---- 測試連線 ----
 

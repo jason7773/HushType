@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import autostart, hotkeys, keystore
+from .. import __version__, autostart, hotkeys, keystore
 from ..config import DEFAULT_CLEANUP_PROMPT
 from . import theme
 from .widgets import Card, label
@@ -241,6 +241,16 @@ class SettingsPage(QWidget):
         form.addRow(self.overlay)
         self.theme = _combo(theme.THEMES, cfg["ui"]["theme"])
         form.addRow("外觀", self.theme)
+        self.check_updates = QCheckBox("啟動時自動檢查新版")
+        self.check_updates.setChecked(cfg["ui"].get("check_updates", True))
+        form.addRow(self.check_updates)
+        urow = QHBoxLayout()
+        self.update_note = label(f"目前版本 {__version__}", "muted")
+        urow.addWidget(self.update_note, 1)
+        check_btn = QPushButton("立即檢查更新")
+        check_btn.clicked.connect(self._check_now)
+        urow.addWidget(check_btn)
+        form.addRow("版本", urow)
 
         # 快捷鍵與麥克風
         card, form = self._card(lay, "快捷鍵與麥克風")
@@ -356,6 +366,13 @@ class SettingsPage(QWidget):
         self.scroll.setWidget(root)
         self.note.setText("")
 
+    def _check_now(self) -> None:
+        self.update_note.setText("檢查中…")
+        self.window.check_updates()
+
+    def set_update_note(self, text: str) -> None:
+        self.update_note.setText(text)
+
     def _card(self, lay, title: str):
         card = Card(title)
         form = _form()
@@ -410,6 +427,7 @@ class SettingsPage(QWidget):
         cfg["feedback"]["beep"] = self.beep.isChecked()
         cfg["ui"]["overlay"] = self.overlay.isChecked()
         cfg["ui"]["theme"] = self.theme.currentData()
+        cfg["ui"]["check_updates"] = self.check_updates.isChecked()
         cfg["hotkey"]["key"] = self.hotkey.currentData() or "right ctrl"
         cfg["hotkey"]["mode"] = self.mode.currentData()
         cfg["hotkey"]["suppress"] = self.suppress.isChecked()

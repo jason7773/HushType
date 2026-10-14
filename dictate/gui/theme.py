@@ -122,6 +122,7 @@ def _stylesheet(c: dict) -> str:
     #brand {{ font-size: 17px; font-weight: 700; }}
 
     #card {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 14px; }}
+    #updateCard {{ background: {c['accent_soft']}; border: 1px solid {c['accent']}; border-radius: 14px; }}
     #h1 {{ font-size: 24px; font-weight: 700; }}
     #h2 {{ font-size: 15px; font-weight: 600; }}
     #muted {{ color: {c['text_muted']}; font-size: 12px; }}

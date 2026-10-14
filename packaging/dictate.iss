@@ -51,8 +51,15 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 
 [Run]
 Filename: "{app}\dictate.exe"; Description: "立即啟動 dictate"; Flags: nowait postinstall skipifsilent
+; 從程式內更新時（安靜安裝並帶 /RELAUNCH），裝完自動重新開啟
+Filename: "{app}\dictate.exe"; Flags: nowait; Check: ShouldRelaunch
 
 [Code]
+function ShouldRelaunch: Boolean;
+begin
+  Result := Pos('/RELAUNCH', UpperCase(GetCmdTail)) > 0;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
