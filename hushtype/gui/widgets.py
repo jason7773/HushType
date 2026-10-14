@@ -22,6 +22,13 @@ def label(text: str = "", name: str | None = None, *, wrap: bool = False) -> QLa
     return lab
 
 
+def divider() -> QFrame:
+    line = QFrame()
+    line.setObjectName("divider")
+    line.setFixedHeight(1)
+    return line
+
+
 class Card(QFrame):
     def __init__(self, title: str | None = None, parent: QWidget | None = None):
         super().__init__(parent)

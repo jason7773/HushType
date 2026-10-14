@@ -250,6 +250,17 @@ class MainWindow(QMainWindow):
                 current.refresh()
         elif kind == "unplaced":
             self.card.show_text(data["text"])
+        elif kind == "corrections":
+            self.engine.learn(data["words"])
+        elif kind == "learned":
+            words = "、".join(data["words"])
+            self.add_event(f"學到新詞：{words}")
+            try:
+                save_config(self.engine.config, self.config_path)
+            except OSError as e:
+                log.warning("無法儲存學到的詞：%s", e)
+            self.dictionary_page.refresh()
+            self.tray.showMessage("Hushtype 學到新詞", f"{words}\n之後會照這個寫法輸出，可在「字典」頁刪除。", QSystemTrayIcon.Information, 4000)
         elif kind == "skipped":
             self.add_event(f"略過：{data['reason']}")
         elif kind == "error":

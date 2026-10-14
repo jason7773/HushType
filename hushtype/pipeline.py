@@ -67,6 +67,18 @@ class Pipeline:
         return self._opencc.convert(text) if self._opencc else text
 
 
+def vocabulary_terms(config: dict) -> list[str]:
+    """手動加入的詞在前，自動學到的接在後面（不重複）。"""
+    vocab = config["vocabulary"]
+    terms = list(vocab["terms"])
+    seen = {t.lower() for t in terms}
+    for t in vocab.get("learned", []):
+        if t.lower() not in seen:
+            terms.append(t)
+            seen.add(t.lower())
+    return terms
+
+
 def build_pipeline(config: dict) -> Pipeline:
     stt = create_stt(config["stt"])
     cleanup = dict(config["cleanup"])
@@ -78,7 +90,7 @@ def build_pipeline(config: dict) -> Pipeline:
         stt,
         cleaner,
         cleanup_prompt=prompt,
-        terms=config["vocabulary"]["terms"],
+        terms=vocabulary_terms(config),
         replacements=config["vocabulary"]["replacements"],
         convert_to_traditional=config["output"]["convert_to_traditional"],
     )

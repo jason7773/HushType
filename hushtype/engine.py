@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
-from . import focus, hotkeys
+from . import focus, hotkeys, learning
 from .audio import Recorder, Recording
 from .output import insert_text
 from .pipeline import Pipeline, build_pipeline
@@ -52,6 +52,7 @@ class Engine:
         self._keys: queue.Queue = queue.Queue()
         threading.Thread(target=self._key_worker, daemon=True).start()
         self._started_at = datetime.now()
+        self._watch_gen = 0  # 每次貼上換一個編號，舊的「自動學新詞」觀察就停止
         self.apply_config(config, rebind=False)
         threading.Thread(target=self._worker, daemon=True).start()
 
@@ -196,6 +197,7 @@ class Engine:
             self._feedback(300)
             return
         self._started_at = datetime.now()
+        self._watch_gen = 0  # 每次貼上換一個編號，舊的「自動學新詞」觀察就停止
         self._feedback(880)
         self._emit_state()
 
@@ -250,12 +252,61 @@ class Engine:
         insert_text(text, method=out["method"], restore_clipboard=out["restore_clipboard"])
         if has_field is False:
             self._emit("unplaced", text=text)
+        elif self.config["vocabulary"].get("auto_learn", True):
+            self._watch_gen += 1
+            threading.Thread(target=self._watch_edits, args=(text, self._watch_gen), daemon=True).start()
         latency = time.monotonic() - t0
         self._record(started_at, rec, text, t0, "ok", app)
         data = {"chars": len(text), "seconds": rec.seconds, "latency": latency, "output": text, "app": app}
         if self.config["privacy"]["log_text"]:
             data["text"] = text
         self._emit("result", **data)
+
+    # ---- 自動學新詞 ----
+
+    WATCH_SECONDS = 60
+    WATCH_INTERVAL = 2.0
+
+    def _watch_edits(self, pasted: str, gen: int) -> None:
+        """貼上後觀察同一個輸入框一段時間；焦點離開或時間到時，比對使用者改了哪些詞。
+
+        輸入框的文字只留在這個函式的區域變數裡，比對完就丟掉。
+        """
+        time.sleep(0.6)  # 等貼上完成
+        first = focus.focused_text()
+        if first is None:
+            return
+        key, last = first
+        baseline = set(learning.find_corrections(pasted, last))
+        deadline = time.monotonic() + self.WATCH_SECONDS
+        while time.monotonic() < deadline and self._watch_gen == gen:
+            time.sleep(self.WATCH_INTERVAL)
+            snap = focus.focused_text()
+            if snap is None or snap[0] != key:
+                break
+            last = snap[1]
+        pairs = [p for p in learning.find_corrections(pasted, last) if p not in baseline]
+        del last
+        if pairs:
+            # 交給介面的執行緒呼叫 learn()，避免和設定頁同時改設定
+            self._emit("corrections", words=[right for _, right in pairs])
+
+    def learn(self, words: list[str]) -> list[str]:
+        """把詞加進「自動學到的詞」並立即用在之後的辨識；回傳真的新加入的詞。"""
+        vocab = self.config["vocabulary"]
+        before = {w.lower() for w in vocab.get("learned", [])}
+        vocab["learned"] = learning.merge(
+            vocab.get("learned", []), words, known=vocab["terms"], ignored=vocab.get("ignored", [])
+        )
+        added = [w for w in vocab["learned"] if w.lower() not in before]
+        if added:
+            if self.pipeline is not None:
+                try:
+                    self.pipeline = build_pipeline(self.config)
+                except (ProviderError, ValueError):
+                    pass
+            self._emit("learned", words=added)
+        return added
 
     def retry(self) -> bool:
         """重送上一段辨識失敗的錄音。沒有可重試的錄音時回傳 False。"""

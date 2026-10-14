@@ -54,6 +54,9 @@ DEFAULTS: dict = {
     "vocabulary": {
         "terms": [],  # 專有名詞，會提示給辨識和整理模型
         "replacements": {},  # 固定替換，例如 {"拍森" = "Python"}
+        "auto_learn": True,  # 貼上後你在同一個輸入框改過的詞，自動加進字典（只在本機比對）
+        "learned": [],  # 自動學到的詞
+        "ignored": [],  # 刪掉的自動學到的詞，不會再學
     },
     "privacy": {
         "log_text": False,  # 是否在主控台印出辨識結果

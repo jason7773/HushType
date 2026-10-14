@@ -445,3 +445,58 @@ def test_legacy_data_folder_is_migrated(tmp_path, monkeypatch):
     assert config.default_config_path() == tmp_path / "Hushtype" / "config.toml"
     assert config.load_config(config.default_config_path())["hotkey"]["key"] == "f9"
     assert (tmp_path / "Hushtype" / "usage.db").exists()
+
+
+def test_find_corrections_learns_edited_words():
+    from hushtype.learning import find_corrections, merge
+
+    assert find_corrections("我用拍森寫的程式，跑得很順。", "前面的內容。我用 Python 寫的程式，跑得很順。") == [("拍森", "Python")]
+    assert find_corrections("拍森寫的程式跑得很順。", "前一句。Python寫的程式跑得很順。") == [("拍森", "Python")]
+    assert find_corrections("我們用 get hub actions 來打包。", "我們用 GitHub Actions 來打包。") == [
+        ("get hub actions", "GitHub Actions")
+    ]
+    # 改用字、改數字、增加內容、整段改寫都不算新詞
+    assert find_corrections("他明天會來公司開會。", "她明天會來公司開會。") == []
+    assert find_corrections("預算是三千元左右。", "預算是 3000 元左右。") == []
+    assert find_corrections("會議改到週五下午三點。", "會議改到週五下午三點，地點在台北。") == []
+    assert find_corrections("今天天氣很好我們去爬山吧", "完全不同的內容在這裡寫了一大段") == []
+
+    assert merge(["Groq"], ["Python", "groq", "OKR"], known=["OKR"], ignored=["拍森"]) == ["Python", "Groq"]
+    assert merge([], ["拍森"], known=[], ignored=["拍森"]) == []
+
+
+def test_engine_learns_from_edits_in_same_field(monkeypatch):
+    from hushtype import engine as engine_mod
+    from hushtype.audio import Recording
+    from hushtype.pipeline import vocabulary_terms
+
+    events = []
+    cfg = copy.deepcopy(DEFAULTS)
+    cfg["stats"]["enabled"] = False
+    cfg["cleanup"]["enabled"] = False
+    cfg["vocabulary"]["terms"] = ["Groq"]
+    monkeypatch.setenv("GROQ_API_KEY", "gsk")
+    monkeypatch.setattr("hushtype.keystore.get_secret", lambda name: None)
+    eng = engine_mod.Engine(cfg, lambda kind, data: events.append((kind, data)))
+    eng.WATCH_INTERVAL = 0.01
+    monkeypatch.setattr(eng.pipeline, "run", lambda wav: "我用拍森寫的程式，跑得很順。")
+    monkeypatch.setattr(engine_mod, "insert_text", lambda text, **kw: None)
+    monkeypatch.setattr(engine_mod.focus, "has_text_focus", lambda: True)
+    snaps = iter([
+        ((1, (7,)), "我用拍森寫的程式，跑得很順。"),
+        ((1, (7,)), "我用 Python 寫的程式，跑得很順。"),
+        ((2, (9,)), "別的視窗"),  # 焦點離開就結束觀察
+    ])
+    monkeypatch.setattr(engine_mod.focus, "focused_text", lambda: next(snaps))
+
+    eng._process(Recording(wav=b"", seconds=2.0, rms=1000), datetime.now(), time.monotonic())
+    deadline = time.monotonic() + 3
+    while not any(k == "corrections" for k, _ in events) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ("corrections", {"words": ["Python"]}) in events
+
+    assert eng.learn(["Python"]) == ["Python"]
+    assert eng.learn(["python"]) == []  # 已經學過
+    assert events[-1] == ("learned", {"words": ["Python"]})
+    assert vocabulary_terms(eng.config) == ["Groq", "Python"]
+    assert "Python" in eng.pipeline.stt_prompt()

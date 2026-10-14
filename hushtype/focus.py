@@ -117,6 +117,45 @@ def _uia_editable() -> bool | None:
     return False
 
 
+def focused_text(before: int = 3000, after: int = 1000) -> tuple[tuple, str] | None:
+    """焦點輸入框的 (識別碼, 游標附近的文字)，給「自動學新詞」在本機比對用。
+
+    密碼欄、取不到文字或不是 Windows 時回傳 None。文字不會被儲存。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        uia, mod = _automation()
+        element = uia.GetFocusedElement()
+        if not element or element.CurrentIsPassword:
+            return None
+        key = (element.CurrentProcessId, tuple(element.GetRuntimeId() or ()))
+        text = _text_near_caret(element, mod, before, after)
+        if text is None:
+            value = _pattern(element, UIA_VALUE_PATTERN, mod.IUIAutomationValuePattern)
+            if value is None:
+                return None
+            text = (value.CurrentValue or "")[-(before + after):]
+        return key, text
+    except Exception as e:
+        log.debug("無法讀取輸入框文字：%s", e)
+        return None
+
+
+def _text_near_caret(element, mod, before: int, after: int) -> str | None:
+    tp = _pattern(element, UIA_TEXT_PATTERN, mod.IUIAutomationTextPattern)
+    if tp is None:
+        return None
+    selection = tp.GetSelection()
+    if not selection or selection.Length == 0:
+        return None
+    rng = selection.GetElement(0).Clone()
+    # TextPatternRangeEndpoint_Start = 0、_End = 1；TextUnit_Character = 0
+    rng.MoveEndpointByUnit(0, 0, -before)
+    rng.MoveEndpointByUnit(1, 0, after)
+    return rng.GetText(before + after)
+
+
 def foreground_app() -> str:
     """前景視窗所屬程式的檔名（例如 chrome.exe），只用在本機統計；取不到時回傳空字串。"""
     if sys.platform != "win32":

@@ -61,3 +61,34 @@ def test_ui_automation_loads():
     uia, mod = focus._automation()
     assert uia is not None and hasattr(mod, "IUIAutomationValuePattern")
     assert focus.has_text_focus() in (True, False, None)
+
+
+def test_focused_text_reads_native_text_box():
+    import subprocess
+
+    from hushtype import focus
+
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$f = New-Object Windows.Forms.Form; $f.TopMost = $true;"
+        "$t = New-Object Windows.Forms.TextBox; $t.Multiline = $true; $t.Dock = 'Fill';"
+        "$t.Text = 'hello Hushtype world'; $f.Controls.Add($t);"
+        "$f.Add_Shown({ $f.Activate(); $t.Focus(); $t.SelectionStart = 5 });"
+        "[Windows.Forms.Application]::Run($f)"
+    )
+    proc = subprocess.Popen(["powershell", "-NoProfile", "-Command", script])
+    try:
+        got = None
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            snap = focus.focused_text()
+            if snap and "Hushtype" in snap[1]:
+                got = snap
+                break
+            time.sleep(0.3)
+        if got is None:
+            pytest.skip("這台機器沒有可用的桌面，測試視窗拿不到焦點")
+        assert got[1].strip() == "hello Hushtype world"
+        assert focus.focused_text()[0] == got[0]  # 同一個輸入框，識別碼不變
+    finally:
+        proc.kill()

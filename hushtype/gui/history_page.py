@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from ..history import RETENTIONS, Entry, disk_supported
 from ..stats import app_label
 from .settings_page import _combo
-from .widgets import Card, label
+from .widgets import Card, divider, label
 
 MAX_ROWS = 300  # 一次顯示的筆數上限，避免頁面太長
 
@@ -102,10 +102,7 @@ class HistoryPage(QScrollArea):
         self.retention.currentIndexChanged.connect(self._retention_changed)
         row.addWidget(self.retention, 0, Qt.AlignVCenter)
         keep.body.addLayout(row)
-        line = QFrame()
-        line.setObjectName("divider")
-        line.setFixedHeight(1)
-        keep.body.addWidget(line)
+        keep.body.addWidget(divider())
         keep.body.addWidget(label("🔒 你的口述內容是私密的", "h2"))
         self.privacy = label("", "secondary", wrap=True)
         keep.body.addWidget(self.privacy)

@@ -7,6 +7,7 @@ import copy
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLineEdit,
@@ -17,17 +18,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .widgets import Card, FlowLayout, label
+from .widgets import Card, FlowLayout, divider, label
 
 
 class Chip(QFrame):
-    def __init__(self, text: str, on_remove):
+    def __init__(self, text: str, on_remove, *, learned: bool = False):
         super().__init__()
         self.setObjectName("chip")
         row = QHBoxLayout(self)
         row.setContentsMargins(12, 6, 6, 6)
         row.setSpacing(6)
-        row.addWidget(label("✦", "chipMark"))
+        mark = label("自動" if learned else "✦", "chipMark")
+        if learned:
+            mark.setToolTip("從你修改過的文字自動學到")
+        row.addWidget(mark)
         row.addWidget(label(text))
         remove = QPushButton("✕")
         remove.setObjectName("chipRemove")
@@ -93,6 +97,26 @@ class DictionaryPage(QScrollArea):
         terms.body.addWidget(self.chips_box)
         self.terms_empty = label("還沒有專有名詞。", "muted")
         terms.body.addWidget(self.terms_empty)
+
+        terms.body.addWidget(divider())
+        head = QHBoxLayout()
+        head.addWidget(label("自動學到的詞", "h2"))
+        head.addStretch(1)
+        self.auto_learn = QCheckBox("自動學新詞")
+        self.auto_learn.toggled.connect(self.set_auto_learn)
+        head.addWidget(self.auto_learn)
+        terms.body.addLayout(head)
+        terms.body.addWidget(label(
+            "貼上文字後，如果你在同一個輸入框把詞改掉（例如把「拍森」改成「Python」），"
+            "就會把改好的寫法加進字典。比對只在這台電腦進行，輸入框的內容不會儲存或送出；密碼欄一律不讀。"
+            "刪掉的詞不會再自動加回來。",
+            "muted", wrap=True,
+        ))
+        self.learned_box = QWidget()
+        self.learned_chips = FlowLayout(self.learned_box)
+        terms.body.addWidget(self.learned_box)
+        self.learned_empty = label("還沒有學到新詞。", "muted")
+        terms.body.addWidget(self.learned_empty)
         self.stack.addWidget(terms)
 
         # 固定替換
@@ -128,10 +152,11 @@ class DictionaryPage(QScrollArea):
     def vocab(self) -> dict:
         return self.window.engine.config["vocabulary"]
 
-    def _save(self, terms: list[str], replacements: dict[str, str]) -> None:
+    def _save(self, terms: list[str], replacements: dict[str, str], **changes) -> None:
         cfg = copy.deepcopy(self.window.engine.config)
         cfg["vocabulary"]["terms"] = terms
         cfg["vocabulary"]["replacements"] = replacements
+        cfg["vocabulary"].update(changes)
         error = self.window.save_settings(cfg, {}, None)
         self.note.setText(f"⚠ {error}" if error else "已儲存，立即生效")
         self.refresh()
@@ -144,6 +169,15 @@ class DictionaryPage(QScrollArea):
                 terms.append(w)
         self.term_input.clear()
         self._save(terms, dict(self.vocab["replacements"]))
+
+    def remove_learned(self, word: str) -> None:
+        learned = [w for w in self.vocab["learned"] if w != word]
+        ignored = [w for w in self.vocab["ignored"] if w.lower() != word.lower()] + [word]
+        self._save(list(self.vocab["terms"]), dict(self.vocab["replacements"]), learned=learned, ignored=ignored)
+
+    def set_auto_learn(self, on: bool) -> None:
+        if on != self.vocab["auto_learn"]:
+            self._save(list(self.vocab["terms"]), dict(self.vocab["replacements"]), auto_learn=on)
 
     def remove_term(self, term: str) -> None:
         self._save([t for t in self.vocab["terms"] if t != term], dict(self.vocab["replacements"]))
@@ -182,6 +216,21 @@ class DictionaryPage(QScrollArea):
         self.terms_empty.setVisible(not terms)
         self.terms_empty.setText("找不到符合的單字。" if query and self.vocab["terms"] else "還沒有專有名詞。")
         self.chips_box.updateGeometry()
+
+        while self.learned_chips.count():
+            w = self.learned_chips.takeAt(0).widget()
+            if w:
+                w.hide()
+                w.deleteLater()
+        learned = [t for t in self.vocab["learned"] if query in t.lower()]
+        for t in learned:
+            self.learned_chips.addWidget(Chip(t, lambda _=False, t=t: self.remove_learned(t), learned=True))
+        self.learned_empty.setVisible(not learned)
+        self.learned_empty.setText("找不到符合的單字。" if query and self.vocab["learned"] else "還沒有學到新詞。")
+        self.auto_learn.blockSignals(True)
+        self.auto_learn.setChecked(self.vocab["auto_learn"])
+        self.auto_learn.blockSignals(False)
+        self.learned_box.updateGeometry()
 
         while self.reps_box.count():
             w = self.reps_box.takeAt(0).widget()

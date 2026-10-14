@@ -270,3 +270,21 @@ def test_update_banner_and_install(window, monkeypatch):
     monkeypatch.setattr(updater, "can_self_update", lambda: False)
     window.start_update()
     assert "開發版" in window.home_page.update_text.text()
+
+
+def test_learned_words_show_in_dictionary(window):
+    from hushtype.config import load_config
+
+    window.on_event("corrections", {"words": ["Python", "OpenAI"]})
+    page = window.dictionary_page
+    assert page.learned_chips.count() == 2
+    assert load_config(window.config_path)["vocabulary"]["learned"] == ["OpenAI", "Python"]
+
+    page.remove_learned("Python")
+    saved = load_config(window.config_path)["vocabulary"]
+    assert saved["learned"] == ["OpenAI"] and saved["ignored"] == ["Python"]
+    window.on_event("corrections", {"words": ["Python"]})  # 刪掉的不會再學
+    assert window.engine.config["vocabulary"]["learned"] == ["OpenAI"]
+
+    page.auto_learn.setChecked(False)
+    assert load_config(window.config_path)["vocabulary"]["auto_learn"] is False
