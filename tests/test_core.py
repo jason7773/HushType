@@ -1,10 +1,10 @@
 import copy
 import io
+import math
 import time
 import wave
 from datetime import datetime
 
-import numpy as np
 import pytest
 
 from hushtype.audio import make_recording
@@ -90,7 +90,7 @@ def test_groq_stt_request(monkeypatch):
         seen.update(url=url, headers=headers, **kw)
         return FakeResponse(200, {"text": " 你好 "})
 
-    monkeypatch.setattr(openai_compat.requests, "post", fake_post)
+    monkeypatch.setattr(openai_compat._session, "post", fake_post)
     stt = create_stt({"provider": "groq", "model": "whisper-large-v3-turbo", "language": "zh"})
     assert stt.transcribe(b"RIFF", prompt="詞彙") == "你好"
     assert seen["url"] == "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -105,14 +105,14 @@ def test_cleaner_strips_think_block(monkeypatch):
         content = "<think>想一下</think>\n整理好的文字。"
         return FakeResponse(200, {"choices": [{"message": {"content": content}}]})
 
-    monkeypatch.setattr(openai_compat.requests, "post", fake_post)
+    monkeypatch.setattr(openai_compat._session, "post", fake_post)
     c = openai_compat.OpenAICompatibleCleaner(base_url="http://x/v1", model="m", api_key="k")
     assert c.clean("原文", system_prompt="S") == "整理好的文字。"
 
 
 def test_http_error_becomes_provider_error(monkeypatch):
     monkeypatch.setattr(
-        openai_compat.requests, "post", lambda *a, **k: FakeResponse(401, {"error": "bad key"})
+        openai_compat._session, "post", lambda *a, **k: FakeResponse(401, {"error": "bad key"})
     )
     stt = openai_compat.OpenAICompatibleSTT(base_url="http://x/v1", model="m", api_key="k")
     with pytest.raises(ProviderError, match="401"):
@@ -159,13 +159,28 @@ def test_example_config_builds(monkeypatch):
     assert p.replacements == {"拍森": "Python"}
 
 
+def _pcm(seconds: float, amplitude: int) -> bytes:
+    from array import array
+
+    n = int(16000 * seconds)
+    return array("h", (int(math.sin(i / 10) * amplitude) for i in range(n))).tobytes()
+
+
 def test_recording_encodes_wav():
-    chunk = (np.sin(np.linspace(0, 100, 16000)) * 3000).astype(np.int16).reshape(-1, 1)
+    chunk = _pcm(1.0, 3000)
     rec = make_recording([chunk, chunk], 16000)
     assert rec.seconds == pytest.approx(2.0)
     assert rec.rms > 1000
     with wave.open(io.BytesIO(rec.wav)) as w:
         assert (w.getframerate(), w.getnchannels(), w.getnframes()) == (16000, 1, 32000)
+
+
+def test_recording_trims_leading_and_trailing_silence():
+    quiet, loud = _pcm(0.1, 20), _pcm(0.1, 3000)
+    chunks = [quiet] * 20 + [loud] * 10 + [quiet] * 30  # 2 秒靜音、1 秒說話、3 秒靜音
+    rec = make_recording(chunks, 16000)
+    assert rec.seconds == pytest.approx(2.0)  # 說話 1 秒，前後各留 0.5 秒
+    assert make_recording([quiet] * 5, 16000).seconds == pytest.approx(0.5)  # 全是靜音就不剪
 
 
 def test_usage_log_and_summary(tmp_path):
@@ -209,7 +224,7 @@ def test_cleaner_sends_extra_params(monkeypatch):
         seen.update(kw["json"])
         return FakeResponse(200, {"choices": [{"message": {"content": "好"}}]})
 
-    monkeypatch.setattr(openai_compat.requests, "post", fake_post)
+    monkeypatch.setattr(openai_compat._session, "post", fake_post)
     c = openai_compat.OpenAICompatibleCleaner(
         base_url="http://x/v1", model="m", api_key="k", extra={"reasoning_effort": "low"}
     )

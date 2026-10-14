@@ -92,3 +92,14 @@ def test_focused_text_reads_native_text_box():
         assert focus.focused_text()[0] == got[0]  # 同一個輸入框，識別碼不變
     finally:
         proc.kill()
+
+
+def test_second_instance_activates_first():
+    from hushtype import single_instance
+
+    first = single_instance.acquire()
+    assert first is not None and first.handle
+    woke = threading.Event()
+    first.listen(woke.set)
+    assert single_instance.acquire() is None  # 第二個會通知第一個然後結束
+    assert woke.wait(3)

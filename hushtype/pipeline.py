@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 
 from .providers import ProviderError, SpeechToText, TextCleaner, create_cleaner, create_stt
 
@@ -30,6 +32,7 @@ class Pipeline:
     ):
         self.stt = stt
         self.cleaner = cleaner
+        self.timings: dict[str, float] = {}  # 上一次各步驟花的秒數
         self.terms = terms or []
         self.replacements = replacements or {}
         self.cleanup_prompt = cleanup_prompt
@@ -47,18 +50,36 @@ class Pipeline:
             prompt += "詞彙：" + "、".join(self.terms) + "。"
         return prompt
 
+    def warm_up(self) -> None:
+        """在背景先連上辨識和整理服務（不送任何內容）。"""
+
+        def run():
+            for service in (self.stt, self.cleaner):
+                if service is not None:
+                    try:
+                        service.warm_up()
+                    except Exception:
+                        pass
+
+        threading.Thread(target=run, daemon=True).start()
+
     def run(self, wav: bytes) -> str:
+        self.timings = {}
+        t = time.monotonic()
         text = self.stt.transcribe(wav, prompt=self.stt_prompt())
+        self.timings["stt"] = time.monotonic() - t
         if not text or _HALLUCINATIONS.match(text.strip()):
             return ""
         text = self._to_traditional(text)
         if self.cleaner:
+            t = time.monotonic()
             try:
                 cleaned = self.cleaner.clean(text, system_prompt=self.cleanup_prompt)
                 text = self._to_traditional(cleaned) or text
             except ProviderError as e:
                 # 整理失敗時仍貼出原始辨識結果，不讓使用者白講
                 log.warning("文字整理失敗，改用原始辨識結果：%s", e)
+            self.timings["cleanup"] = time.monotonic() - t
         for wrong, right in self.replacements.items():
             text = text.replace(wrong, right)
         return text.strip()

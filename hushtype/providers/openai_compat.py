@@ -33,6 +33,19 @@ def _is_local(base_url: str) -> bool:
     return urlparse(base_url).hostname in {"localhost", "127.0.0.1", "::1"}
 
 
+# 共用連線：同一個服務的 TLS 連線會被重複使用，不必每次重新握手
+_session = requests.Session()
+_session.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=4))
+
+
+def warm_up(base_url: str) -> None:
+    """先跟服務建好連線（不送任何內容），放開按鍵時就能直接上傳。"""
+    try:
+        _session.head(base_url.rstrip("/") + "/models", timeout=5)
+    except requests.RequestException:
+        pass
+
+
 def _headers(api_key: str) -> dict:
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
@@ -40,7 +53,7 @@ def _headers(api_key: str) -> dict:
 def _check(base_url: str, api_key: str, model: str) -> None:
     """列出模型，確認金鑰有效且型號存在。"""
     try:
-        resp = requests.get(base_url.rstrip("/") + "/models", headers=_headers(api_key), timeout=10)
+        resp = _session.get(base_url.rstrip("/") + "/models", headers=_headers(api_key), timeout=10)
     except requests.RequestException as e:
         raise ProviderError(f"連線失敗：{e}") from e
     if resp.status_code == 401:
@@ -57,7 +70,7 @@ def _check(base_url: str, api_key: str, model: str) -> None:
 
 def _post(url: str, api_key: str, timeout: float, **kwargs) -> dict:
     try:
-        resp = requests.post(url, headers=_headers(api_key), timeout=timeout, **kwargs)
+        resp = _session.post(url, headers=_headers(api_key), timeout=timeout, **kwargs)
     except requests.RequestException as e:
         raise ProviderError(f"連線失敗：{e}") from e
     if resp.status_code != 200:
@@ -92,6 +105,9 @@ class OpenAICompatibleSTT(SpeechToText):
 
     def check(self) -> None:
         _check(self.base_url, self.api_key, self.model)
+
+    def warm_up(self) -> None:
+        warm_up(self.base_url)
 
     def transcribe(self, wav: bytes, *, prompt: str | None = None) -> str:
         data = {"model": self.model, "response_format": "json", "temperature": "0"}
@@ -131,6 +147,9 @@ class OpenAICompatibleCleaner(TextCleaner):
 
     def check(self) -> None:
         _check(self.base_url, self.api_key, self.model)
+
+    def warm_up(self) -> None:
+        warm_up(self.base_url)
 
     def _payload(self, messages: list) -> dict:
         payload = {"model": self.model, "messages": messages, **self.extra}
@@ -212,6 +231,9 @@ class GeminiSTT(SpeechToText):
 
     def check(self) -> None:
         _check(self.base_url, self.api_key, self.model)
+
+    def warm_up(self) -> None:
+        warm_up(self.base_url)
 
     def transcribe(self, wav: bytes, *, prompt: str | None = None) -> str:
         instruction = GEMINI_STT_INSTRUCTION

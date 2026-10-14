@@ -39,9 +39,29 @@ python -m PyInstaller --noconfirm --clean --windowed `
     --collect-data opencc `
     --hidden-import keyring.backends.Windows `
     --collect-submodules comtypes.gen `
+    --exclude-module numpy `
+    --exclude-module PySide6.QtNetwork `
+    --exclude-module tkinter `
     --distpath dist --workpath build `
     hushtype.pyw
 if ($LASTEXITCODE) { throw "PyInstaller 失敗" }
+
+# 拿掉用不到的 Qt 檔案：軟體 OpenGL、翻譯檔、圖片格式與其他外掛（介面全部是自己畫的）
+$qt = "dist\Hushtype\_internal\PySide6"
+$unused = @(
+    "$qt\opengl32sw.dll", "$qt\translations", "$qt\Qt6Network.dll", "$qt\Qt6Pdf.dll",
+    "$qt\Qt6Qml.dll", "$qt\Qt6QmlModels.dll", "$qt\Qt6Quick.dll", "$qt\Qt6Svg.dll", "$qt\Qt6VirtualKeyboard.dll",
+    "$qt\plugins\imageformats", "$qt\plugins\tls", "$qt\plugins\networkinformation",
+    "$qt\plugins\generic", "$qt\plugins\iconengines", "$qt\plugins\platforminputcontexts",
+    "$qt\plugins\styles",
+    # Qt 網路模組自帶的 OpenSSL（Python 連線用的是另一份 libssl-3.dll / libcrypto-3.dll，要保留）
+    "dist\Hushtype\_internal\libcrypto-3-x64.dll", "dist\Hushtype\_internal\libssl-3-x64.dll"
+)
+foreach ($path in $unused) {
+    if (Test-Path $path) { Remove-Item $path -Recurse -Force; Write-Host "已移除 $path" }
+}
+# 只留下 Windows 平台外掛
+Get-ChildItem "$qt\plugins\platforms" -Filter *.dll | Where-Object Name -ne "qwindows.dll" | Remove-Item -Force
 Sign-File "dist\Hushtype\Hushtype.exe"
 
 # 2. 安裝檔

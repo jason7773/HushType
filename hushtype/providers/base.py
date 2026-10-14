@@ -23,6 +23,9 @@ class SpeechToText(ABC):
     def transcribe(self, wav: bytes, *, prompt: str | None = None) -> str:
         """把 16 kHz 單聲道 WAV 轉成文字。"""
 
+    def warm_up(self) -> None:
+        """錄音開始時先建好連線，減少放開按鍵後的等待。"""
+
     def check(self) -> None:
         """確認服務可以連線、金鑰有效；失敗時丟出 ProviderError。"""
 
@@ -31,6 +34,9 @@ class TextCleaner(ABC):
     @abstractmethod
     def clean(self, text: str, *, system_prompt: str) -> str:
         """依 system_prompt 整理逐字稿，只回傳整理後的文字。"""
+
+    def warm_up(self) -> None:
+        """錄音開始時先建好連線，減少放開按鍵後的等待。"""
 
     def check(self) -> None:
         """確認服務可以連線、金鑰有效；失敗時丟出 ProviderError。"""

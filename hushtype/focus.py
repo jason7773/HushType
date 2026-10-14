@@ -156,6 +156,18 @@ def _text_near_caret(element, mod, before: int, after: int) -> str | None:
     return rng.GetText(before + after)
 
 
+def foreground_window() -> int:
+    """前景視窗的代碼；不是 Windows 時回傳 0。"""
+    if sys.platform != "win32":
+        return 0
+    try:
+        import ctypes
+
+        return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+    except Exception:
+        return 0
+
+
 def foreground_app() -> str:
     """前景視窗所屬程式的檔名（例如 chrome.exe），只用在本機統計；取不到時回傳空字串。"""
     if sys.platform != "win32":

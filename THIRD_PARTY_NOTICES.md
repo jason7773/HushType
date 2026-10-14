@@ -6,7 +6,6 @@ Hushtype（悄聲）本身以 [MIT 授權](LICENSE) 釋出。安裝檔內附帶�
 |---|---|---|
 | [Python](https://www.python.org/) | 執行環境 | PSF License |
 | [Qt for Python (PySide6)](https://doc.qt.io/qtforpython/) | 介面 | LGPL-3.0 |
-| [NumPy](https://numpy.org/) | 音訊處理 | BSD-3-Clause |
 | [sounddevice](https://github.com/spatialaudio/python-sounddevice) 與 [PortAudio](http://www.portaudio.com/) | 錄音 | MIT |
 | [keyboard](https://github.com/boppreh/keyboard) | 全域快捷鍵 | MIT |
 | [pyperclip](https://github.com/asweigart/pyperclip) | 剪貼簿 | BSD-3-Clause |

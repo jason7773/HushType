@@ -15,6 +15,7 @@ import logging
 import queue
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Callable
 
@@ -36,6 +37,32 @@ def _beep(freq: int) -> None:
     except ImportError:
         return
     threading.Thread(target=winsound.Beep, args=(freq, 80), daemon=True).start()
+
+
+class _FocusProbe:
+    """在背景查目前的程式和有沒有輸入框（UI Automation 有時要上百毫秒），跟辨識同時進行。
+
+    取結果時如果前景視窗已經換了，就重新查一次。
+    """
+
+    # 固定用同一條執行緒，UI Automation 只需要初始化一次
+    _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="focus")
+
+    def __init__(self, check_field: bool):
+        self.check_field = check_field
+        self.window = focus.foreground_window()
+        self._future = self._pool.submit(self._query)
+
+    def _query(self) -> tuple[str, bool | None]:
+        return focus.foreground_app(), focus.has_text_focus() if self.check_field else None
+
+    def result(self) -> tuple[str, bool | None]:
+        if focus.foreground_window() != self.window:
+            return self._pool.submit(self._query).result()
+        try:
+            return self._future.result(timeout=2)
+        except Exception:
+            return "", None
 
 
 class Engine:
@@ -197,7 +224,8 @@ class Engine:
             self._feedback(300)
             return
         self._started_at = datetime.now()
-        self._watch_gen = 0  # 每次貼上換一個編號，舊的「自動學新詞」觀察就停止
+        self._watch_gen += 1  # 開始新的錄音就結束上一段的「自動學新詞」觀察
+        self.pipeline.warm_up()  # 一邊說話一邊先連上服務
         self._feedback(880)
         self._emit_state()
 
@@ -232,6 +260,7 @@ class Engine:
         pipeline = self.pipeline
         if pipeline is None:
             return
+        probe = _FocusProbe(self.config["output"].get("show_unplaced", True))  # 辨識的同時查好焦點
         try:
             text = pipeline.run(rec.wav)
         except ProviderError as e:
@@ -246,10 +275,11 @@ class Engine:
             self._emit("skipped", reason="沒有辨識到內容")
             return
         self.last_text = text
-        app = focus.foreground_app()
+        app, has_field = probe.result()
         out = self.config["output"]
-        has_field = focus.has_text_focus() if out.get("show_unplaced", True) else None
+        t_paste = time.monotonic()
         insert_text(text, method=out["method"], restore_clipboard=out["restore_clipboard"])
+        timings = dict(pipeline.timings, paste=time.monotonic() - t_paste)
         if has_field is False:
             self._emit("unplaced", text=text)
         elif self.config["vocabulary"].get("auto_learn", True):
@@ -257,7 +287,8 @@ class Engine:
             threading.Thread(target=self._watch_edits, args=(text, self._watch_gen), daemon=True).start()
         latency = time.monotonic() - t0
         self._record(started_at, rec, text, t0, "ok", app)
-        data = {"chars": len(text), "seconds": rec.seconds, "latency": latency, "output": text, "app": app}
+        data = {"chars": len(text), "seconds": rec.seconds, "latency": latency, "output": text, "app": app,
+                "timings": timings}
         if self.config["privacy"]["log_text"]:
             data["text"] = text
         self._emit("result", **data)

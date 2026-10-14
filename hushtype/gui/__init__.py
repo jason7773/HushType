@@ -11,7 +11,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QGuiApplication
-from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsOpacityEffect,
@@ -28,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__, autostart, keystore
+from .. import __version__, autostart, keystore, single_instance
 from ..config import DEFAULTS, load_config, save_config
 from ..engine import Engine
 from . import theme
@@ -46,8 +45,6 @@ from .update import UpdateController
 from .widgets import AuroraBackground, GlassFrame, Spotlight, label
 
 log = logging.getLogger(__name__)
-
-INSTANCE_NAME = "hushtype-single-instance"
 
 
 PAGE_HOME, PAGE_HISTORY, PAGE_DICTIONARY, PAGE_STATS, PAGE_SETTINGS = range(5)
@@ -289,7 +286,9 @@ class MainWindow(QMainWindow):
     def on_event(self, kind: str, data: dict) -> None:
         if not self._ready:
             return
-        if kind == "state":
+        if kind == "activate":
+            self.bring_to_front()
+        elif kind == "state":
             state = data["state"]
             name, color = theme.STATES[state]
             self.tray.setIcon(theme.state_icon(state))
@@ -306,7 +305,11 @@ class MainWindow(QMainWindow):
         elif kind == "result":
             text = data.get("text")
             what = f"「{text}」" if text else f"{data['chars']} 字"
-            self.add_event(f"已輸入 {what}（說 {data['seconds']:.0f} 秒，等 {data['latency']:.1f} 秒）")
+            steps = data.get("timings") or {}
+            names = (("stt", "辨識"), ("cleanup", "整理"), ("paste", "貼上"))
+            detail = "、".join(f"{name} {steps[k]:.1f}" for k, name in names if k in steps)
+            detail = f"：{detail}" if detail else ""
+            self.add_event(f"已輸入 {what}（說 {data['seconds']:.0f} 秒，等 {data['latency']:.1f} 秒{detail}）")
             if data.get("output"):
                 self.history.add(data["output"], app=data.get("app", ""), seconds=data["seconds"])
             current = self.pages.currentWidget()
@@ -450,18 +453,6 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
 
-def _notify_running_instance() -> bool:
-    """已經有 Hushtype 在執行時，請它把視窗叫出來，並回傳 True。"""
-    sock = QLocalSocket()
-    sock.connectToServer(INSTANCE_NAME)
-    if sock.waitForConnected(300):
-        sock.write(b"show")
-        sock.waitForBytesWritten(300)
-        sock.disconnectFromServer()
-        return True
-    return False
-
-
 def run(config_path: Path, *, minimized: bool = False) -> int:
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv[:1])
@@ -473,11 +464,9 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
     font.setPointSizeF(10)
     app.setFont(font)
 
-    if _notify_running_instance():
-        return 0
-    server = QLocalServer()
-    QLocalServer.removeServer(INSTANCE_NAME)
-    server.listen(INSTANCE_NAME)
+    instance = single_instance.acquire()
+    if instance is None:
+        return 0  # 已經在執行，已經叫它出來了
 
     try:
         config = load_config(config_path)
@@ -492,11 +481,7 @@ def run(config_path: Path, *, minimized: bool = False) -> int:
     theme.apply(app, config["ui"]["theme"])
     window = MainWindow(config_path, config)
 
-    def on_connection():
-        conn = server.nextPendingConnection()
-        conn.readyRead.connect(lambda: (conn.readAll(), window.bring_to_front()))
-
-    server.newConnection.connect(on_connection)
+    instance.listen(lambda: window.bridge.event.emit("activate", {}))
     QGuiApplication.styleHints().colorSchemeChanged.connect(lambda _: window.apply_theme())
 
     if minimized:
