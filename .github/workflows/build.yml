@@ -54,6 +54,15 @@ jobs:
           CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
           CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
 
+      - name: Size report
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist\Hushtype -Recurse -File
+          "程式資料夾：{0:N1} MB，{1} 個檔案" -f (($files | Measure-Object Length -Sum).Sum / 1MB), $files.Count
+          Get-ChildItem dist\*-setup-*.exe | ForEach-Object { "{0}：{1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+          $files | Sort-Object Length -Descending | Select-Object -First 30 |
+            ForEach-Object { "{0,8:N2} MB  {1}" -f ($_.Length / 1MB), $_.FullName.Substring((Resolve-Path dist\Hushtype).Path.Length + 1) }
+
       - uses: actions/upload-artifact@v4
         with:
           name: Hushtype-setup-${{ steps.version.outputs.value }}
