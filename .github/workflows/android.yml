@@ -1,0 +1,100 @@
+name: android
+
+# 改到 android/ 時建置 APK。推到 main 時，若 android/app/build.gradle.kts 的版本號
+# 還沒有對應的 Release（android-vX.Y.Z），就自動建立 Release；否則只打包成 Actions artifact。
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(sed -n 's/^val appVersionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          release=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && ! gh release view "android-v$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release=true
+          fi
+          [ "$release" = "true" ] || v="$v-dev.$GITHUB_RUN_NUMBER"
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+      # 有設定 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD 時用你的金鑰簽章，之後的版本才能直接覆蓋安裝。
+      # 還沒設定時用這次建置臨時產生的金鑰（安裝新版前要先解除安裝舊版）。
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          ks="$RUNNER_TEMP/hushtype.p12"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$ks"
+            pass="$KEYSTORE_PASSWORD"
+            echo "使用 GitHub Secrets 裡的簽章金鑰"
+          else
+            pass=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$ks" -storetype pkcs12 -storepass "$pass" -alias hushtype \
+              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Hushtype (temporary)" >/dev/null
+            echo "::warning::還沒設定 ANDROID_KEYSTORE_BASE64，這次用臨時金鑰簽章；安裝之後的版本前要先解除安裝。"
+          fi
+          echo "::add-mask::$pass"
+          alias=$(keytool -list -v -keystore "$ks" -storetype pkcs12 -storepass "$pass" | sed -n 's/^Alias name: //p' | head -1)
+          {
+            echo "HUSHTYPE_KEYSTORE=$ks"
+            echo "HUSHTYPE_KEYSTORE_PASSWORD=$pass"
+            echo "HUSHTYPE_KEY_ALIAS=$alias"
+          } >> "$GITHUB_ENV"
+
+      - name: Test and build
+        run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/Hushtype-android-${{ steps.version.outputs.value }}.apk"
+          ls -l dist
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs dist/*.apk | head -5 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hushtype-android-${{ steps.version.outputs.value }}
+          path: android/dist/*.apk
+
+      # make_latest: false，避免桌面版的「檢查更新」把 Android 版當成最新版
+      - name: Release
+        if: steps.version.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
+          name: Hushtype Android ${{ steps.version.outputs.value }}
+          files: android/dist/*.apk
+          make_latest: "false"
+          body: |
+            Android 版 Hushtype 悄聲：重視隱私的語音輸入鍵盤。
+
+            在手機上下載 `Hushtype-android-${{ steps.version.outputs.value }}.apk`，打開後依畫面允許「安裝未知應用程式」即可安裝。安裝步驟見 [android/README.md](https://github.com/${{ github.repository }}/blob/main/android/README.md)。

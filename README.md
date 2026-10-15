@@ -56,6 +56,10 @@
 
 系統需求：Windows 10 或 11（64 位元）、麥克風、可連網（使用雲端服務時）。
 
+### Android 版
+
+手機上也能用：Hushtype 是一個語音輸入鍵盤，在任何 App 切換過去按麥克風說話即可。到 [Releases](https://github.com/jason7773/hushtype/releases) 下載 `Hushtype-android-x.y.z.apk` 安裝，詳細說明見 [android/README.md](android/README.md)。
+
 ## 選擇服務
 
 語音辨識和文字整理可以分別選不同的服務。金鑰存在 Windows 認證管理員，不會寫進設定檔。
