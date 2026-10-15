@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Hushtype" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg</item>
+        <item name="android:colorAccent">#8b84ff</item>
+        <item name="android:colorControlActivated">#8b84ff</item>
+        <item name="android:textColorHighlight">#668b84ff</item>
+    </style>
+</resources>

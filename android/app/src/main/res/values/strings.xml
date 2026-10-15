@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hushtype</string>
+    <string name="ime_name">Hushtype 語音輸入</string>
+    <string name="subtype_label">中文（臺灣）語音輸入</string>
+</resources>
