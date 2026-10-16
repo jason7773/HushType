@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__, autostart, keystore, single_instance
+from .. import __version__, autostart, hotkeys, keystore, single_instance
 from ..config import DEFAULTS, load_config, save_config
 from ..engine import Engine
 from . import theme
@@ -146,6 +146,12 @@ class MainWindow(QMainWindow):
         self._build_tray()
         self._ready = True
         self.on_event("state", {"state": self.engine.state})
+        try:
+            # 舊版（0.9.0 以前）可能讓系統以為 Ctrl 一直按著，啟動時順手放開
+            if hotkeys.release_stuck_keys():
+                self.add_event("已放開卡住的 Ctrl 鍵")
+        except Exception:
+            log.exception("無法檢查卡住的按鍵")
         try:
             self.engine.bind()
         except Exception as e:  # 例如沒有權限監聽鍵盤

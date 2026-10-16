@@ -259,6 +259,68 @@ def test_hotkey_names():
     assert key_label("f9") == "F9"
 
 
+def test_hotkey_vks_keep_left_and_right_apart():
+    from hushtype.hotkeys import key_label, key_vks, vk_name
+
+    assert key_vks("right ctrl") == (0xA3,)  # 只有右 Ctrl，左 Ctrl 照常可用
+    assert key_vks("ctrl") == (0xA2, 0xA3)
+    assert key_vks("F9") == (0x78,)
+    for name in ("right ctrl", "right alt", "caps lock", "f12", "scroll lock", "pause", "a", "7"):
+        assert vk_name(key_vks(name)[0]) == name
+    assert vk_name(0xE7) == "vk:231" and key_vks("vk:231") == (0xE7,)
+    assert key_label("vk:231") == "按鍵 231"
+    with pytest.raises(ValueError):
+        key_vks("no such key")
+
+
+def _key_event(hook, vk, down, injected=False):
+    import ctypes
+
+    WM_KEYDOWN, WM_KEYUP = 0x0100, 0x0101
+    data = (ctypes.c_uint32 * 6)(vk, 0, 0x10 if injected else 0, 0, 0, 0)
+    return hook._filter(WM_KEYDOWN if down else WM_KEYUP, ctypes.addressof(data))
+
+
+def test_key_hook_never_swallows_release_or_injected_keys():
+    from hushtype.hotkeys import KeyHook
+
+    hook = KeyHook(None, (0xA3,), suppress=True)
+    # 程式自己送出的 Ctrl（貼上）一律放行，也不觸發錄音
+    assert _key_event(hook, 0xA3, True, injected=True) is False
+    assert _key_event(hook, 0xA3, False, injected=True) is False
+    # 左 Ctrl 不是快捷鍵，放行
+    assert _key_event(hook, 0xA2, True) is False
+    assert _key_event(hook, 0xA2, False) is False
+    # 右 Ctrl：按下（含自動重複）攔下，放開放行
+    assert _key_event(hook, 0xA3, True) is True
+    assert _key_event(hook, 0xA3, True) is True
+    assert _key_event(hook, 0xA3, False) is False
+    events = []
+    while not hook._events.empty():
+        events.append(hook._events.get())
+    assert events == [(0xA3, True), (0xA3, False)]
+
+
+def test_paste_always_releases_ctrl(monkeypatch):
+    from hushtype import output
+
+    sent = []
+    monkeypatch.setattr(output, "_send_inputs", lambda events: sent.append(events))
+    output.paste()
+    assert len(sent) == 1  # 一次送出，中間不會被打斷
+    assert sent[0][0] == (0x11, 0, 0) and sent[0][-1] == (0x11, 0, 0x0002)
+
+
+def test_engine_routes_key_events():
+    from hushtype.engine import Engine
+
+    engine = Engine.__new__(Engine)
+    engine._keys = __import__("queue").Queue()
+    engine._on_key(0xA3, True)
+    engine._on_key(0xA3, False)
+    assert engine._keys.get() == engine.on_press and engine._keys.get() == engine.on_release
+
+
 def test_engine_routes_mouse_button_events():
     from hushtype.engine import Engine
 

@@ -20,7 +20,7 @@ def _print_event(kind: str, data: dict) -> None:
 
 
 def run(config: dict) -> None:
-    import keyboard
+    import time
 
     engine = Engine(config, _print_event)
     if engine.setup_error:
@@ -29,6 +29,9 @@ def run(config: dict) -> None:
     how = "按住" if config["hotkey"]["mode"] == "hold" else "按一下開始、再按一下結束"
     print(f"Hushtype 已啟動：{how}「{config['hotkey']['key']}」說話。按 Ctrl+C 結束。", flush=True)
     try:
-        keyboard.wait()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         pass
+    finally:
+        engine.unbind()

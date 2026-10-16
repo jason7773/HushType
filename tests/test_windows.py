@@ -55,6 +55,43 @@ def test_mouse_hook_sees_side_button():
     assert got == [("x2", True), ("x2", False)]
 
 
+def _ctrl_down(vk: int) -> bool:
+    import ctypes
+
+    return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def test_paste_with_hotkey_hook_leaves_ctrl_released():
+    from hushtype import output
+    from hushtype.hotkeys import KeyHook
+
+    got = []
+    hook = KeyHook(lambda vk, down: got.append((vk, down)), (0xA2, 0xA3), suppress=True)
+    hook.start()
+    try:
+        time.sleep(0.2)
+        for _ in range(20):
+            output.paste()
+        time.sleep(0.3)
+    finally:
+        hook.stop()
+    assert got == []  # 自己送出的 Ctrl 不會被當成快捷鍵、也不會被攔
+    assert not _ctrl_down(0xA2) and not _ctrl_down(0xA3) and not _ctrl_down(0x11)
+
+
+def test_release_stuck_ctrl():
+    from hushtype import hotkeys, output
+
+    output.send_keys([(0xA2, True)])
+    time.sleep(0.1)
+    if not _ctrl_down(0xA2):
+        output.send_keys([(0xA2, False)])
+        pytest.skip("這台機器沒有可用的桌面，讀不到按鍵狀態")
+    assert hotkeys.release_stuck_keys() == [0xA2]
+    time.sleep(0.1)
+    assert not _ctrl_down(0xA2)
+
+
 def test_ui_automation_loads():
     from hushtype import focus
 

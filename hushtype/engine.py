@@ -71,8 +71,8 @@ class Engine:
         self.jobs: queue.Queue[tuple[Recording, datetime, float]] = queue.Queue()
         self.paused = False
         self.busy = 0  # 排隊或處理中的錄音數
-        self._hooks: list = []
-        self._mouse: hotkeys.MouseHook | None = None
+        self._hook: hotkeys.KeyHook | hotkeys.MouseHook | None = None
+        self._mouse_button = ""
         self._bound = False
         self.last_text = ""  # 上一段輸出的文字，只放在記憶體
         self.failed: tuple[Recording, datetime] | None = None  # 辨識失敗、可以重試的錄音
@@ -158,36 +158,23 @@ class Engine:
         button = hotkeys.mouse_button(key)
         if button:
             hook = hotkeys.MouseHook(self._on_mouse, suppress={button})
-            hook.start()
-            self._mouse, self._mouse_button = hook, button
+            self._mouse_button = button
         else:
-            import keyboard
-
             # suppress：攔下這個鍵，避免例如 F12 同時打開瀏覽器的開發者工具
             suppress = self.config["hotkey"].get("suppress", True)
-            self._hooks = [
-                keyboard.on_press_key(key, lambda e: self._keys.put(self.on_press), suppress=suppress),
-                keyboard.on_release_key(key, lambda e: self._keys.put(self.on_release), suppress=suppress),
-            ]
+            hook = hotkeys.KeyHook(self._on_key, hotkeys.key_vks(key), suppress=suppress)
+        hook.start()
+        self._hook = hook
         self._bound = True
 
     def unbind(self) -> None:
-        if self._mouse:
-            self._mouse.stop()
-            self._mouse = None
-        if self._hooks:
-            import keyboard
-
-            for hook in self._hooks:
-                try:
-                    keyboard.unhook(hook)
-                except (KeyError, ValueError):
-                    pass
-            self._hooks = []
+        if self._hook:
+            self._hook.stop()
+            self._hook = None
         self._bound = False
 
     def _key_worker(self) -> None:
-        # 攔截按鍵時 hook 會等 callback 回來，所以實際動作放到這條執行緒做
+        # 錄音開始／結束要花一點時間，放到這條執行緒做，hook 的事件處理不會被卡住
         while True:
             action = self._keys.get()
             try:
@@ -195,17 +182,20 @@ class Engine:
             except Exception:
                 log.exception("快捷鍵處理失敗")
 
+    def _on_key(self, _vk: int, down: bool) -> None:
+        self._keys.put(self.on_press if down else self.on_release)
+
     def _on_mouse(self, button: str, down: bool) -> None:
         if button == self._mouse_button:
             self.on_press() if down else self.on_release()
 
-    # 以下在快捷鍵 hook 的執行緒中執行，必須快速返回
+    # 以下在快捷鍵的處理執行緒中執行（不是 hook 本身），按住說話時要盡快開始錄音
     def on_press(self, _event=None) -> None:
         if self.paused:
             return
         if self.config["hotkey"]["mode"] == "toggle":
             self._stop() if self.recorder.recording else self._start()
-        elif not self.recorder.recording:  # 按住時會重複觸發，只在第一次開始
+        elif not self.recorder.recording:
             self._start()
 
     def on_release(self, _event=None) -> None:
