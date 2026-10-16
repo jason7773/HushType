@@ -3,4 +3,4 @@
 APP_NAME = "Hushtype"
 APP_NAME_ZH = "悄聲"
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
