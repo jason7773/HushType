@@ -84,16 +84,26 @@ class ApiClient(private val provider: Provider, private val apiKey: String) {
         if (provider.sttViaChat) transcribeViaChat(wav, model, language, prompt) else transcribeWhisper(wav, model, language, prompt)
 
     private fun transcribeWhisper(wav: ByteArray, model: String, language: String?, prompt: String?): String {
+        // gpt-transcribe 改用 languages 參數，也不回傳偵測到的語言，交給 prompt 提示即可
+        if (model.startsWith("gpt-transcribe")) return whisperRequest(wav, model, null, prompt, "json").optString("text").trim()
+        if (!language.isNullOrEmpty()) return whisperRequest(wav, model, language, prompt, "json").optString("text").trim()
+        // 自動偵測：英文就照英文寫，不會被硬轉成中文。
+        // 偶爾口音較重的中文會被判成其他語言（例如日文、粵語），這時固定成中文再辨識一次。
+        var json = whisperRequest(wav, model, null, prompt, "verbose_json")
+        if (TextRules.shouldRetryAsChinese(json.optString("language"))) json = whisperRequest(wav, model, "zh", prompt, "json")
+        return json.optString("text").trim()
+    }
+
+    private fun whisperRequest(wav: ByteArray, model: String, language: String?, prompt: String?, format: String): JSONObject {
         val boundary = "----hushtype" + UUID.randomUUID().toString().replace("-", "")
         val body = ByteArrayOutputStream(wav.size + 1024)
         fun field(name: String, value: String) {
             body.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n".toByteArray())
         }
         field("model", model)
-        field("response_format", "json")
+        field("response_format", format)
         field("temperature", "0")
-        // gpt-transcribe 改用 languages 參數，交給 prompt 提示即可
-        if (!language.isNullOrEmpty() && !model.startsWith("gpt-transcribe")) field("language", language)
+        if (!language.isNullOrEmpty()) field("language", language)
         if (!prompt.isNullOrEmpty()) field("prompt", prompt)
         body.write(
             ("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n" +
@@ -105,13 +115,12 @@ class ApiClient(private val provider: Provider, private val apiKey: String) {
         val conn = open("$base/audio/transcriptions", "POST", 45_000)
         conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         send(conn, body.toByteArray())
-        val json = parse(read(conn))
-        return json.optString("text").trim()
+        return parse(read(conn))
     }
 
     private fun transcribeViaChat(wav: ByteArray, model: String, language: String?, prompt: String?): String {
         var instruction = TextRules.GEMINI_STT_INSTRUCTION
-        if (language == "zh") instruction += "內容以中文為主，可能夾雜英文。"
+        instruction += TextRules.geminiLanguageHint(language)
         if (!prompt.isNullOrEmpty()) instruction += "\n" + prompt
         val content = JSONArray()
             .put(JSONObject().put("type", "text").put("text", instruction))

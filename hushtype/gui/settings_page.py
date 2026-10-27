@@ -50,7 +50,7 @@ PROVIDER_NOTES = {
     "gemini": "注意：Gemini 免費方案的內容可能被 Google 拿去改善產品。機密內容請先在 Google AI Studio 開啟付費方案。",
     "openai_compatible": "資料會送到你填的網址。填本機網址（127.0.0.1）時完全不出你的電腦。",
 }
-LANGUAGES = [("中文", "zh"), ("英文", "en"), ("自動偵測", "")]
+LANGUAGES = [("中英自動偵測（建議）", ""), ("只說中文", "zh"), ("只說英文", "en")]
 EFFORTS = [("低（較快）", "low"), ("中", "medium"), ("高", "high"), ("不設定", None)]
 PROVIDERS = [
     ("Groq", "groq"),

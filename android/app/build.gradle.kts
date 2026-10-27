@@ -4,8 +4,8 @@ plugins {
 }
 
 // 版本號：發佈新版時改這裡（versionCode 每次都要加 1）
-val appVersionName = "0.1.0"
-val appVersionCode = 1
+val appVersionName = "0.1.1"
+val appVersionCode = 2
 
 // CI 會用 GitHub Secrets 裡的簽章金鑰；本機建置時用 Android 的除錯金鑰
 val keystorePath: String? = System.getenv("HUSHTYPE_KEYSTORE")

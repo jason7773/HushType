@@ -99,6 +99,65 @@ def test_groq_stt_request(monkeypatch):
     assert seen["data"]["prompt"] == "詞彙"
 
 
+def _fake_whisper(monkeypatch, replies):
+    """依序回傳 replies 裡的回應，並記下每次送出的表單欄位。"""
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    sent = []
+
+    def fake_post(url, headers, timeout, **kw):
+        sent.append(kw["data"])
+        return FakeResponse(200, replies[len(sent) - 1])
+
+    monkeypatch.setattr(openai_compat._session, "post", fake_post)
+    return sent
+
+
+def test_default_stt_does_not_force_chinese(monkeypatch):
+    # 以前預設固定 language=zh，講英文會被 Whisper 硬寫成中文
+    sent = _fake_whisper(monkeypatch, [{"text": " Let's move the meeting to three. ", "language": "english"}])
+    stt = create_stt(DEFAULTS["stt"])
+    assert stt.transcribe(b"RIFF") == "Let's move the meeting to three."
+    assert len(sent) == 1
+    assert "language" not in sent[0]
+    assert sent[0]["response_format"] == "verbose_json"
+
+
+def test_auto_language_retries_as_chinese_when_misdetected(monkeypatch):
+    sent = _fake_whisper(monkeypatch, [{"text": "明日の会議", "language": "ja"}, {"text": "明天的會議"}])
+    stt = create_stt({"provider": "groq", "model": "whisper-large-v3-turbo", "language": ""})
+    assert stt.transcribe(b"RIFF") == "明天的會議"
+    assert [d.get("language") for d in sent] == [None, "zh"]
+
+
+def test_auto_language_keeps_chinese_and_english(monkeypatch):
+    for detected in ("zh", "chinese", "en", "English", None):
+        sent = _fake_whisper(monkeypatch, [{"text": "ok", "language": detected}])
+        create_stt({"provider": "groq", "model": "whisper-large-v3-turbo"}).transcribe(b"RIFF")
+        assert len(sent) == 1, detected
+
+
+def test_stt_prompt_follows_language():
+    assert "English" in Pipeline(FakeSTT(""), language="en").stt_prompt()
+    assert "繁體中文" in Pipeline(FakeSTT(""), language="zh").stt_prompt()
+    auto = Pipeline(FakeSTT(""), terms=["Groq"]).stt_prompt()
+    assert "English" in auto and "Groq" in auto
+
+
+def test_pipeline_keeps_english_when_cleaner_translates():
+    cleaner = FakeCleaner(result="我們把會議改到三點。")
+    p = Pipeline(FakeSTT("um so let's move the meeting to three"), cleaner, cleanup_prompt="自訂規則")
+    assert p.run(b"") == "um so let's move the meeting to three"
+    # 自訂的整理規則也會加上「不要翻譯」
+    assert "不要翻譯" in cleaner.calls[0][1]
+
+
+def test_pipeline_cleans_english_and_mixed_text():
+    p = Pipeline(FakeSTT("um so let's move the meeting to three"), FakeCleaner(result="Let's move the meeting to three."))
+    assert p.run(b"") == "Let's move the meeting to three."
+    p = Pipeline(FakeSTT("嗯明天的meeting改到三點"), FakeCleaner(result="明天的 meeting 改到三點。"))
+    assert p.run(b"") == "明天的 meeting 改到三點。"
+
+
 def test_cleaner_strips_think_block(monkeypatch):
     def fake_post(url, headers, timeout, **kw):
         assert url.endswith("/chat/completions")
