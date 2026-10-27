@@ -66,7 +66,25 @@ class TextRulesTest {
     @Test
     fun promptsIncludeTerms() {
         assertTrue(TextRules.sttPrompt(listOf("Groq", "Hushtype")).contains("Groq、Hushtype"))
-        assertEquals("base", TextRules.cleanupPrompt("base", emptyList()))
+        assertTrue(TextRules.cleanupPrompt("base", emptyList()).startsWith("base"))
+    }
+
+    @Test
+    fun englishIsNotForcedIntoChinese() {
+        assertTrue(TextRules.sttPrompt(emptyList(), "en").contains("English"))
+        assertTrue(TextRules.sttPrompt(emptyList()).contains("English"))
+        // 自訂的整理規則也會加上「不要翻譯」
+        assertTrue(TextRules.cleanupPrompt("自訂規則", emptyList()).contains("不要翻譯"))
+        assertTrue(TextRules.containsCjk("明天的 meeting"))
+        assertFalse(TextRules.containsCjk("Let's move the meeting to three."))
+    }
+
+    @Test
+    fun retriesAsChineseOnlyWhenMisdetected() {
+        for (lang in listOf("", "zh", "chinese", "en", "English")) assertFalse(lang, TextRules.shouldRetryAsChinese(lang))
+        assertFalse(TextRules.shouldRetryAsChinese(null))
+        assertTrue(TextRules.shouldRetryAsChinese("ja"))
+        assertTrue(TextRules.shouldRetryAsChinese("Japanese"))
     }
 
     @Test

@@ -38,7 +38,7 @@ class Settings private constructor(context: Context) {
     var switchBack by bool("switch_back", false) // 輸入後自動切回原本的鍵盤
     var animations by bool("animations", true)
     var language: String
-        get() = prefs.getString("language", "zh") ?: "zh"
+        get() = prefs.getString("language", "") ?: "" // 留空：中英自動偵測
         set(value) = prefs.edit().putString("language", value).apply()
 
     /** system、light、dark */

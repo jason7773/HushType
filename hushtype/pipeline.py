@@ -18,6 +18,10 @@ _HALLUCINATIONS = re.compile(
     re.IGNORECASE,
 )
 
+_CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+
+KEEP_LANGUAGE_RULE = "保持逐字稿原本的語言，不要翻譯：英文就輸出英文，中英夾雜就維持中英夾雜。"
+
 
 class Pipeline:
     def __init__(
@@ -29,13 +33,16 @@ class Pipeline:
         terms: list[str] | None = None,
         replacements: dict[str, str] | None = None,
         convert_to_traditional: bool = True,
+        language: str = "",
     ):
         self.stt = stt
+        self.language = language
         self.cleaner = cleaner
         self.timings: dict[str, float] = {}  # 上一次各步驟花的秒數
         self.terms = terms or []
         self.replacements = replacements or {}
-        self.cleanup_prompt = cleanup_prompt
+        # 自訂的整理規則也一樣：不管規則怎麼寫，都不能把英文翻成中文
+        self.cleanup_prompt = cleanup_prompt + "\n" + KEEP_LANGUAGE_RULE
         if self.terms:
             self.cleanup_prompt += "\n以下是使用者常用的專有名詞，請以這些寫法為準：" + "、".join(self.terms)
         self._opencc = None
@@ -45,7 +52,16 @@ class Pipeline:
             self._opencc = opencc.OpenCC("s2twp")
 
     def stt_prompt(self) -> str:
-        prompt = "以下是繁體中文的口述內容，可能夾雜英文。"
+        if self.language == "en":
+            prompt = "The following is dictated English."
+            if self.terms:
+                prompt += " Vocabulary: " + ", ".join(self.terms) + "."
+            return prompt
+        if self.language == "zh":
+            prompt = "以下是繁體中文的口述內容，可能夾雜英文。"
+        else:
+            # 中英都有的範例，辨識模型才不會偏向只寫中文
+            prompt = "以下是口述內容，可能是中文、英文或中英夾雜，例如：明天的 meeting 改到三點。This may also be entirely in English."
         if self.terms:
             prompt += "詞彙：" + "、".join(self.terms) + "。"
         return prompt
@@ -74,8 +90,12 @@ class Pipeline:
         if self.cleaner:
             t = time.monotonic()
             try:
-                cleaned = self.cleaner.clean(text, system_prompt=self.cleanup_prompt)
-                text = self._to_traditional(cleaned) or text
+                cleaned = self._to_traditional(self.cleaner.clean(text, system_prompt=self.cleanup_prompt))
+                if cleaned and not _CJK.search(text) and _CJK.search(cleaned):
+                    # 說的是英文，整理後卻冒出中文：模型擅自翻譯了，改用原本的辨識結果
+                    log.warning("文字整理把英文翻成中文，改用原始辨識結果")
+                    cleaned = ""
+                text = cleaned or text
             except ProviderError as e:
                 # 整理失敗時仍貼出原始辨識結果，不讓使用者白講
                 log.warning("文字整理失敗，改用原始辨識結果：%s", e)
@@ -114,4 +134,5 @@ def build_pipeline(config: dict) -> Pipeline:
         terms=vocabulary_terms(config),
         replacements=config["vocabulary"]["replacements"],
         convert_to_traditional=config["output"]["convert_to_traditional"],
+        language=config["stt"].get("language") or "",
     )

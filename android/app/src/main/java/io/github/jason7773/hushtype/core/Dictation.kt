@@ -30,7 +30,7 @@ class Dictation(private val config: DictationConfig) {
             recording.wav,
             config.sttModel,
             config.language.ifEmpty { null },
-            TextRules.sttPrompt(config.terms),
+            TextRules.sttPrompt(config.terms, config.language),
         )
         val sttMs = (System.nanoTime() - t) / 1_000_000
         if (text.isBlank() || TextRules.isHallucination(text)) return DictationResult("", sttMs, 0, false)
@@ -43,7 +43,9 @@ class Dictation(private val config: DictationConfig) {
             try {
                 val prompt = TextRules.cleanupPrompt(config.cleanupPrompt, config.terms)
                 val cleaned = client.clean(text, config.cleanupModel, prompt)
-                if (cleaned.isNotBlank()) text = cleaned
+                // 說的是英文，整理後卻冒出中文：模型擅自翻譯了，改用原本的辨識結果
+                val translated = !TextRules.containsCjk(text) && TextRules.containsCjk(cleaned)
+                if (cleaned.isNotBlank() && !translated) text = cleaned
             } catch (e: ApiException) {
                 // 整理失敗時仍輸出原始辨識結果，不讓使用者白講
                 cleanupFailed = true
